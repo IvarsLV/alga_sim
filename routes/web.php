@@ -20,6 +20,8 @@ use App\Http\Controllers\ConfigurationController;
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [SimulatorController::class, 'index'])->name('dashboard');
     Route::post('/documents', [SimulatorController::class, 'storeDocument'])->name('documents.store');
+    Route::put('/documents/{document}', [SimulatorController::class, 'updateDocument'])->name('documents.update');
+    Route::delete('/documents/{document}', [SimulatorController::class, 'destroyDocument'])->name('documents.destroy');
     
     Route::get('/policies', [ConfigurationController::class, 'index'])->name('policies.index');
     Route::post('/policies', [ConfigurationController::class, 'store'])->name('policies.store');

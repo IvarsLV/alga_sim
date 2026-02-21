@@ -15,6 +15,7 @@ return new class extends Migration
             $table->id();
             $table->integer('tip');
             $table->string('name');
+            $table->text('description')->nullable();
             $table->boolean('is_accruable')->default(false);
             $table->decimal('norm_days', 8, 4)->nullable();
             $table->json('rules')->nullable();

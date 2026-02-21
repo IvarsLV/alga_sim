@@ -17,57 +17,156 @@ class VacationBalanceService
     }
 
     /**
-     * Calculate the current accrued vacation balance in days.
+     * Calculate the current accrued vacation balance in days and return a detailed log.
      *
      * @param Employee $employee
-     * @return float
+     * @return array
      */
-    public function getBalance(Employee $employee): float
+    public function getBalanceWithLog(Employee $employee): array
     {
+        $log = [];
+
         // 1. Determine base date shifted by long unpaid leaves if any
-        $baseDate = $this->calculateShiftedBaseDate($employee);
+        $shiftResult = $this->calculateShiftedBaseDate($employee);
+        $baseDate = $shiftResult['date'];
         
-        // 2. Calculate months worked since base date
-        $monthsWorked = $baseDate->diffInMonths(now());
+        if (!$baseDate) {
+            $log[] = "Nav atrasts 'Pieņemšana darbā' dokuments. Uzkrājums netiek rēķināts.";
+            return ['balance' => 0.0, 'log' => $log];
+        }
+
+        $log[] = "Pieņemšana darbā: " . $baseDate->format('d.m.Y');
+
+        if (!empty($shiftResult['log'])) {
+            $log = array_merge($log, $shiftResult['log']);
+        }
 
         // 3. Find the main accruable vacation config
         $accruableConfig = VacationConfig::where('is_accruable', true)->first();
         $yearlyNorm = $accruableConfig ? (float) $accruableConfig->norm_days : 20.0;
+        $configName = $accruableConfig ? $accruableConfig->name : 'Ikgadējais apmaksātais atvaļinājums';
         
-        $monthlyRate = $yearlyNorm / 12;
+        $measureUnit = 'DD';
+        if ($accruableConfig && $accruableConfig->rules) {
+            $rules = is_string($accruableConfig->rules) ? json_decode($accruableConfig->rules, true) : $accruableConfig->rules;
+            $measureUnit = $rules['measure_unit'] ?? 'DD';
+        }
         
-        $earnedBaseDays = $monthsWorked * $monthlyRate;
+        if ($measureUnit === 'KD') {
+            $yearlyNormKD = $yearlyNorm;
+            $yearlyNormDD = $yearlyNorm * (20 / 28);
+        } else {
+            $yearlyNormDD = $yearlyNorm;
+            $yearlyNormKD = $yearlyNorm * (28 / 20);
+        }
+        
+        $monthlyRateDD = $yearlyNormDD / 12;
+        $monthlyRateKD = $yearlyNormKD / 12;
+        
+        $log[] = "Bāzes norma: ".round($yearlyNormDD, 2)." DD / ".round($yearlyNormKD, 2)." KD gadā → ".round($monthlyRateDD, 4)." DD / ".round($monthlyRateKD, 4)." KD mēnesī ({$configName}).";
+
+        // 2. Calculate months worked since base date
+        $monthsWorked = $baseDate->diffInMonths(now());
+        $log[] = "Nostrādāti pilni mēneši: " . $monthsWorked;
+        
+        $earnedBaseDD = $monthsWorked * $monthlyRateDD;
+        $earnedBaseKD = $monthsWorked * $monthlyRateKD;
+        $log[] = "Bāzes uzkrājums: ".round($monthlyRateDD, 4)." DD × {$monthsWorked} mēn. = " . round($earnedBaseDD, 2) . " DD (".round($earnedBaseKD, 2)." KD)";
 
         // 4. Add extra days for children (added per full working year)
-        $extraChildDays = $this->childExtraVacationService->getExtraDays($employee);
+        // Child extra days are ALWAYS working days (DD) - they do not convert via KD ratio
+        $extraChildDaysDD = $this->childExtraVacationService->getExtraDays($employee);
         $fullYearsWorked = floor($monthsWorked / 12);
         
-        $totalEarned = $earnedBaseDays + ($extraChildDays * $fullYearsWorked);
+        $childTotalDD = $extraChildDaysDD * $fullYearsWorked;
+        // For KD display, child days are still counted as the same number (1 DD = 1 KD for child bonus)
+        $childTotalKD = $childTotalDD;
+        if ($extraChildDaysDD > 0) {
+            $log[] = "[Bērni] Reģistrēti bērni. Papildu: {$childTotalDD} DD ({$extraChildDaysDD} DD × {$fullYearsWorked} g.).";
+        } else {
+            $log[] = "[Bērni] Nav reģistrētu bērnu vai nav pilns gads. Papildu: 0 DD.";
+        }
+
+        $totalEarnedDD = $earnedBaseDD + $childTotalDD;
+        $totalEarnedKD = $earnedBaseKD + $childTotalKD;
+        $log[] = "Kopā uzkrāts: " . round($totalEarnedDD, 2) . " DD / " . round($totalEarnedKD, 2) . " KD";
 
         // 5. Subtract used accruable days
-        $usedDays = Document::where('employee_id', $employee->id)
-            ->whereIn('type', ['vacation', 'unpaid_leave', 'study_leave']) // Any leave document type
-            ->get()
-            ->filter(function($doc) {
-                $payload = is_string($doc->payload) ? json_decode($doc->payload, true) : $doc->payload;
-                $configId = $payload['vacation_config_id'] ?? null;
-                if ($configId) {
-                    $config = VacationConfig::find($configId);
-                    return $config && $config->is_accruable;
-                }
-                return false;
-            })
-            ->sum('days');
+        $usedLeaveDocs = Document::where('employee_id', $employee->id)
+            ->whereIn('type', ['vacation', 'unpaid_leave', 'study_leave'])
+            ->get();
 
-        return round($totalEarned - $usedDays, 4);
+        $usedLog = [];
+        $usedDaysDD = 0;
+        $usedDaysKD = 0;
+        foreach ($usedLeaveDocs as $doc) {
+            $payload = is_string($doc->payload) ? json_decode($doc->payload, true) : $doc->payload;
+            $configId = $payload['vacation_config_id'] ?? null;
+            if ($configId) {
+                $config = VacationConfig::find($configId);
+                if ($config && $config->is_accruable) {
+                    $start = \Carbon\Carbon::parse($doc->date_from);
+                    $end = \Carbon\Carbon::parse($doc->date_to);
+                    $kd = $start->diffInDays($end) + 1;
+                    
+                    $dd = 0;
+                    $current = $start->copy();
+                    while ($current->lte($end)) {
+                        if (!$current->isWeekend()) $dd++;
+                        $current->addDay();
+                    }
+
+                    $usedDaysDD += $dd;
+                    $usedDaysKD += $kd;
+
+                    $usedLog[] = "[-{$dd} DD / -{$kd} KD] - Izmantots '{$config->name}' (No {$doc->date_from} līdz {$doc->date_to}).";
+                }
+            }
+        }
+
+        if (count($usedLog) > 0) {
+            $log = array_merge($log, $usedLog);
+            $log[] = "Kopā izmantots: {$usedDaysDD} DD / {$usedDaysKD} KD";
+        }
+        
+        $finalBalanceDD = round($totalEarnedDD - $usedDaysDD, 4);
+        $finalBalanceKD = round($totalEarnedKD - $usedDaysKD, 4);
+        $log[] = "Atlikums: " . round($finalBalanceDD, 2) . " DD / " . round($finalBalanceKD, 2) . " KD";
+
+        return [
+            'balance' => $measureUnit === 'KD' ? $finalBalanceKD : $finalBalanceDD,
+            'balanceDD' => round($finalBalanceDD, 2),
+            'balanceKD' => round($finalBalanceKD, 2),
+            'log' => $log,
+            'unit' => $measureUnit
+        ];
+    }
+
+    /**
+     * Backward compatibility wrapper
+     */
+    public function getBalance(Employee $employee): float
+    {
+        return $this->getBalanceWithLog($employee)['balance'];
     }
 
     /**
      * Calculate if the base employment date must be shifted due to long unpaid leaves
+     * Returns an array with 'date' and 'log'
      */
-    protected function calculateShiftedBaseDate(Employee $employee): Carbon
+    protected function calculateShiftedBaseDate(Employee $employee): array
     {
-        $baseDate = Carbon::parse($employee->sakdatums);
+        $log = [];
+        $hireDoc = Document::where('employee_id', $employee->id)
+            ->where('type', 'hire')
+            ->orderBy('date_from', 'asc')
+            ->first();
+
+        if (!$hireDoc || !$hireDoc->date_from) {
+            return ['date' => null, 'log' => []]; // No hire document found
+        }
+
+        $baseDate = Carbon::parse($hireDoc->date_from);
 
         $shiftDocs = Document::where('employee_id', $employee->id)
             ->whereIn('type', ['vacation', 'unpaid_leave', 'study_leave'])
@@ -90,9 +189,10 @@ class VacationBalanceService
             if ($doc->days > 28) {
                 $daysToShift = $doc->days - 28;
                 $baseDate->addDays($daysToShift);
+                $log[] = "[!] Bāzes datuma nobīde: Atvaļinājums > 4 ned. ({$doc->days} dienas). Nobīda par {$daysToShift} dienām. Jaunā bāze: " . $baseDate->format('d.m.Y');
             }
         }
 
-        return $baseDate;
+        return ['date' => $baseDate, 'log' => $log];
     }
 }

@@ -9,6 +9,7 @@ class VacationConfig extends Model
     protected $fillable = [
         'tip',
         'name',
+        'description',
         'is_accruable',
         'norm_days',
         'rules',

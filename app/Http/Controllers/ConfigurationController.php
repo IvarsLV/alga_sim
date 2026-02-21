@@ -22,6 +22,7 @@ class ConfigurationController extends Controller
         $validated = $request->validate([
             'tip' => 'required|integer',
             'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
             'is_accruable' => 'required|boolean',
             'norm_days' => 'nullable|numeric',
             'rules' => 'required|array',
@@ -37,6 +38,7 @@ class ConfigurationController extends Controller
         $validated = $request->validate([
             'tip' => 'required|integer',
             'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
             'is_accruable' => 'required|boolean',
             'norm_days' => 'nullable|numeric',
             'rules' => 'required|array',
