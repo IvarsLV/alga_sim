@@ -3,24 +3,14 @@ nixPkgs = ["php82", "php82Packages.composer", "nodejs_20", "nodePackages.npm"]
 
 [phases.install]
 cmds = [
-    "composer install --no-dev --optimize-autoloader --ignore-platform-reqs",
+    "APP_URL=http://localhost APP_KEY=base64:W7w9DKOLvEDwkAPckvH2Qrp44xDfYHgr5rjOM+Nh25o= APP_ENV=production composer install --no-dev --ignore-platform-reqs",
     "npm install --legacy-peer-deps"
 ]
-
-[phases.install.onlyIncludeFiles]
-APP_URL = "http://localhost"
-APP_KEY = "base64:W7w9DKOLvEDwkAPckvH2Qrp44xDfYHgr5rjOM+Nh25o="
-APP_ENV = "production"
 
 [phases.build]
 cmds = [
     "npm run build"
 ]
-
-[phases.build.onlyIncludeFiles]
-APP_URL = "http://localhost"
-APP_KEY = "base64:W7w9DKOLvEDwkAPckvH2Qrp44xDfYHgr5rjOM+Nh25o="
-APP_ENV = "production"
 
 [start]
 cmd = "php artisan migrate --force && php artisan db:seed --force && php artisan optimize && php artisan serve --host=0.0.0.0 --port=$PORT"
