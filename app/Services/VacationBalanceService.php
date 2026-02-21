@@ -68,27 +68,27 @@ class VacationBalanceService
         // 2. Calculate months worked since base date
         $monthsWorked = $baseDate->diffInMonths(now());
         $log[] = "Nostrādāti pilni mēneši: " . $monthsWorked;
-        
-        $earnedBaseDD = $monthsWorked * $monthlyRateDD;
-        $earnedBaseKD = $monthsWorked * $monthlyRateKD;
-        $log[] = "Bāzes uzkrājums: ".round($monthlyRateDD, 4)." DD × {$monthsWorked} mēn. = " . round($earnedBaseDD, 2) . " DD (".round($earnedBaseKD, 2)." KD)";
 
-        // 4. Add extra days for children (added per full working year)
-        // Child extra days are ALWAYS working days (DD) - they do not convert via KD ratio
+        // 4. Check child extra days (DL 150./151. pants)
+        // Extra days are part of the YEARLY NORM, not a separate accumulating bonus
         $extraChildDaysDD = $this->childExtraVacationService->getExtraDays($employee);
-        $fullYearsWorked = floor($monthsWorked / 12);
         
-        $childTotalDD = $extraChildDaysDD * $fullYearsWorked;
-        // For KD display, child days are still counted as the same number (1 DD = 1 KD for child bonus)
-        $childTotalKD = $childTotalDD;
+        // Add child extra days to the yearly norm → they accrue monthly like base vacation
+        $effectiveYearlyNormDD = $yearlyNormDD + $extraChildDaysDD;
+        $effectiveYearlyNormKD = $yearlyNormKD + $extraChildDaysDD; // child days counted same in KD
+        $effectiveMonthlyRateDD = $effectiveYearlyNormDD / 12;
+        $effectiveMonthlyRateKD = $effectiveYearlyNormKD / 12;
+
         if ($extraChildDaysDD > 0) {
-            $log[] = "[Bērni] Reģistrēti bērni. Papildu: {$childTotalDD} DD ({$extraChildDaysDD} DD × {$fullYearsWorked} g.).";
-        } else {
-            $log[] = "[Bērni] Nav reģistrētu bērnu vai nav pilns gads. Papildu: 0 DD.";
+            $log[] = "[Bērni] Papildu {$extraChildDaysDD} DD/gadā → efektīvā norma: {$effectiveYearlyNormDD} DD/gadā (" . round($effectiveMonthlyRateDD, 4) . " DD/mēn.).";
         }
 
-        $totalEarnedDD = $earnedBaseDD + $childTotalDD;
-        $totalEarnedKD = $earnedBaseKD + $childTotalKD;
+        $earnedBaseDD = $monthsWorked * $effectiveMonthlyRateDD;
+        $earnedBaseKD = $monthsWorked * $effectiveMonthlyRateKD;
+        $log[] = "Uzkrājums: ".round($effectiveMonthlyRateDD, 4)." DD × {$monthsWorked} mēn. = " . round($earnedBaseDD, 2) . " DD (".round($earnedBaseKD, 2)." KD)";
+
+        $totalEarnedDD = $earnedBaseDD;
+        $totalEarnedKD = $earnedBaseKD;
         $log[] = "Kopā uzkrāts: " . round($totalEarnedDD, 2) . " DD / " . round($totalEarnedKD, 2) . " KD";
 
         // 5. Subtract used accruable days
