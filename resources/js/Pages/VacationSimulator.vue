@@ -115,8 +115,10 @@ const formatDate = (val) => {
 
 const parseLocalDate = (dateStr) => {
     if (!dateStr) return null;
-    const [year, month, day] = dateStr.split('-');
-    return new Date(year, month - 1, day);
+    // Take only YYYY-MM-DD part — database may return full datetime string
+    const datePart = String(dateStr).substring(0, 10);
+    const [year, month, day] = datePart.split('-');
+    return new Date(Number(year), Number(month) - 1, Number(day));
 };
 
 const calculateWorkingDays = (startStr, endStr) => {
