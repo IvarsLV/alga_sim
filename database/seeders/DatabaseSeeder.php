@@ -15,9 +15,16 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        User::factory()->create([
+        // Only seed if no data exists yet (prevents re-seeding on every deploy)
+        if (User::count() > 0) {
+            return;
+        }
+
+        User::create([
             'name' => 'Admin User',
             'email' => 'admin@alga.lv',
+            'password' => bcrypt('password'),
+            'email_verified_at' => now(),
         ]);
 
         $employee = \App\Models\Employee::create([
