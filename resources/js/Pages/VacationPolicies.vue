@@ -107,7 +107,7 @@ const getPeriodLabel = (periodType) => {
 };
 
 const getPaymentLabel = (status) => {
-    if (status === 'apmaksāts') return 'Apmaksāts';
+    if (status === 'apmaksāts') return 'Uzņēmums';
     if (status === 'neapmaksāts') return 'Neapmaksāts';
     if (status === 'VSAA') return 'VSAA';
     return '—';
@@ -311,7 +311,7 @@ const getLawColor = (lawRef) => {
                                     <div>
                                         <InputLabel value="Apmaksa" class="mb-1.5 text-gray-700 font-medium text-sm" />
                                         <select v-model="form.rules.payment_status" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 transition text-sm">
-                                            <option value="apmaksāts">Apmaksāts</option>
+                                            <option value="apmaksāts">Uzņēmums</option>
                                             <option value="neapmaksāts">Neapmaksāts</option>
                                             <option value="VSAA">VSAA</option>
                                         </select>
