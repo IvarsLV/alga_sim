@@ -55,9 +55,13 @@ class SimulatorController extends Controller
         }
 
         $hasHireDoc = Document::where('employee_id', $employee->id)->where('type', 'hire')->exists();
+        
+        // Resolve effective hire date for display
+        $hireDoc = Document::where('employee_id', $employee->id)->where('type', 'hire')->orderBy('date_from', 'asc')->first();
+        $effectiveHireDate = $hireDoc && $hireDoc->date_from ? $hireDoc->date_from : $employee->sakdatums;
 
         return Inertia::render('VacationSimulator', [
-            'employee' => $employee,
+            'employee' => clone $employee->setAttribute('sakdatums', $effectiveHireDate), // Pass effective date to frontend
             'documents' => $documents,
             'vacationConfigs' => $vacationConfigs,
             'hasHireDocument' => $hasHireDoc,
