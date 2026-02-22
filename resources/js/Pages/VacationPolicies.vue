@@ -89,6 +89,7 @@ const updateIsAccruable = () => {
 
 const getExpirationMode = () => {
     if (form.rules.expires_end_of_period) return 'end_of_period';
+    if (form.rules.expires_by_adding_to_annual) return 'add_to_annual';
     if (form.rules.carry_over_years !== null && form.rules.carry_over_years !== undefined) return 'carry';
     if ((form.rules.usage_deadline_months !== null && form.rules.usage_deadline_months !== undefined) || 
         (form.rules.usage_deadline_days !== null && form.rules.usage_deadline_days !== undefined)) return 'deadline';
@@ -98,17 +99,20 @@ const getExpirationMode = () => {
 const setExpirationMode = (mode) => {
     // Reset all
     form.rules.expires_end_of_period = false;
+    form.rules.expires_by_adding_to_annual = false;
     form.rules.carry_over_years = null;
     form.rules.usage_deadline_months = null;
     form.rules.usage_deadline_days = null;
 
     if (mode === 'end_of_period') {
         form.rules.expires_end_of_period = true;
+    } else if (mode === 'add_to_annual') {
+        form.rules.expires_by_adding_to_annual = true;
     } else if (mode === 'carry') {
         form.rules.carry_over_years = 1; // Default
     } else if (mode === 'deadline') {
         form.rules.usage_deadline_months = 6; // Default
-        form.rules.usage_deadline_days = 0;
+        form.rules.usage_deadline_days = null;
     }
 };
 
@@ -368,6 +372,7 @@ const getLawColor = (lawRef) => {
                                             <option value="carry">tiek pārnestas uz nākamo gadu</option>
                                             <option value="end_of_period">dzēšas (anulējas) perioda beigās</option>
                                             <option value="deadline">dzēšas pēc noteikta laika</option>
+                                            <option value="add_to_annual">pievienojas ikgadējam atvaļinājumam</option>
                                         </select>
                                         
                                         <!-- Inline options based on choice -->
