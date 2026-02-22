@@ -56,8 +56,9 @@ function toggleAlgorithm(configId) {
 
 function formatDate(d) {
     if (!d) return '—';
-    const dt = new Date(d);
-    return dt.toLocaleDateString('lv-LV', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const s = String(d).split('T')[0];
+    const [y, m, dd] = s.split('-');
+    return `${dd}.${m}.${y}`;
 }
 
 function getDocTypeLabel(type) {
@@ -134,10 +135,24 @@ function getPaymentBadge(status) {
     }
 }
 
-function formatAlgoLine(line) {
-    let result = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    return result;
+function getFormulaLabel(formula) {
+    switch (formula) {
+        case 'average_salary': return 'Vidējā izpeļņa';
+        case 'base_salary': return 'Pamatalga';
+        case 'unpaid': return 'Neapmaksāts';
+        default: return formula || '—';
+    }
 }
+
+function formatAlgoLine(line) {
+    return line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+}
+
+// Total balance for ikgadējais (row with tip=1)
+const ikgadejaisBalance = computed(() => {
+    const row = props.balanceTable?.find(r => r.config_tip === 1);
+    return row ? row.balance_dd : 0;
+});
 </script>
 
 <template>
@@ -161,7 +176,7 @@ function formatAlgoLine(line) {
             </section>
 
             <!-- ═══════════════════════════════════════════════════════════ -->
-            <!-- BALANCE TABLE (Warehouse View)                            -->
+            <!-- BALANCE TABLE                                             -->
             <!-- ═══════════════════════════════════════════════════════════ -->
             <section class="balance-section">
                 <h2 class="section-title">
@@ -174,9 +189,9 @@ function formatAlgoLine(line) {
                             <th class="col-type">Atvaļinājuma veids</th>
                             <th class="col-law">Likums</th>
                             <th class="col-pay">Apmaksa</th>
+                            <th class="col-pay">Formula</th>
                             <th class="col-num">Uzkrāts (DD)</th>
-                            <th class="col-num">Noilgums</th>
-                            <th class="col-num">Izmantots</th>
+                            <th class="col-num">Izmantots (DD)</th>
                             <th class="col-num col-balance">Atlikums (DD)</th>
                             <th class="col-num">Atlikums (KD)</th>
                             <th class="col-actions">Info</th>
@@ -202,9 +217,11 @@ function formatAlgoLine(line) {
                                         {{ getPaymentBadge(row.payment_status).label }}
                                     </span>
                                 </td>
+                                <td class="col-pay">
+                                    <span class="formula-badge">{{ getFormulaLabel(row.rules?.financial_formula) }}</span>
+                                </td>
                                 <td class="col-num accrued">{{ row.accrued > 0 ? row.accrued.toFixed(2) : '—' }}</td>
-                                <td class="col-num expired">{{ row.expired > 0 ? '-' + row.expired.toFixed(2) : '—' }}</td>
-                                <td class="col-num used">{{ row.used > 0 ? '-' + row.used.toFixed(2) : '—' }}</td>
+                                <td class="col-num used">{{ (row.used + (row.expired || 0)) > 0 ? '-' + (row.used + (row.expired || 0)).toFixed(2) : '—' }}</td>
                                 <td class="col-num col-balance" :class="{ positive: row.balance_dd > 0, negative: row.balance_dd < 0 }">
                                     <strong>{{ row.balance_dd !== 0 ? row.balance_dd.toFixed(2) : '—' }}</strong>
                                 </td>
@@ -216,7 +233,7 @@ function formatAlgoLine(line) {
                                 </td>
                             </tr>
 
-                            <!-- Expanded: Transaction History (Stock Card) -->
+                            <!-- Expanded: Transaction History -->
                             <tr v-if="expandedRows[row.config_id]" class="detail-row">
                                 <td :colspan="9">
                                     <div class="stock-card">
@@ -228,54 +245,42 @@ function formatAlgoLine(line) {
                                                     <th>Periods</th>
                                                     <th>Tips</th>
                                                     <th>Apraksts</th>
-                                                    <th class="col-num">+Uzkrāts</th>
-                                                    <th class="col-num">-Noilgums</th>
-                                                    <th class="col-num">-Izmantots</th>
+                                                    <th class="col-num">Daudzums</th>
+                                                    <th class="col-num">Atlikums</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                <tr v-for="(t, idx) in row.transactions" :key="idx" 
+                                                <tr v-for="(t, idx) in row.transactions" :key="idx"
                                                     :class="{ 'tx-accrual': t.transaction_type === 'accrual', 'tx-usage': t.transaction_type === 'usage', 'tx-expiration': t.transaction_type === 'expiration' }">
                                                     <td>{{ formatDate(t.period_from) }} — {{ formatDate(t.period_to) }}</td>
                                                     <td>
                                                         <span :class="'tx-badge tx-' + t.transaction_type">
-                                                            {{ t.transaction_type === 'accrual' ? 'Uzkrājums' : t.transaction_type === 'usage' ? 'Izmantots' : 'Noilgums' }}
+                                                            {{ t.transaction_type === 'accrual' ? 'Uzkrājums' : t.transaction_type === 'usage' ? 'Izmantots' : '⏰ Noilgums' }}
                                                         </span>
                                                     </td>
                                                     <td class="desc-cell">{{ t.description }}</td>
-                                                    <td class="col-num accrued">{{ t.transaction_type === 'accrual' ? (+t.days_dd).toFixed(2) : '' }}</td>
-                                                    <td class="col-num expired">{{ t.transaction_type === 'expiration' ? Math.abs(t.days_dd).toFixed(2) : '' }}</td>
-                                                    <td class="col-num used">{{ t.transaction_type === 'usage' ? Math.abs(t.days_dd).toFixed(2) : '' }}</td>
+                                                    <td class="col-num" :class="{ accrued: t.transaction_type === 'accrual', used: t.transaction_type === 'usage', expired: t.transaction_type === 'expiration' }">
+                                                        {{ t.transaction_type === 'accrual' ? '+' + Number(t.days_dd).toFixed(2) : '-' + Math.abs(t.days_dd).toFixed(2) }}
+                                                    </td>
+                                                    <td class="col-num remaining-cell" v-if="t.transaction_type === 'accrual'">
+                                                        <span v-if="Number(t.remaining_dd) < Number(t.days_dd)" class="remaining-consumed">
+                                                            {{ Number(t.remaining_dd).toFixed(2) }}
+                                                            <small>(izlietots {{ (Number(t.days_dd) - Number(t.remaining_dd)).toFixed(2) }})</small>
+                                                        </span>
+                                                        <span v-else class="remaining-full">{{ Number(t.remaining_dd).toFixed(2) }}</span>
+                                                    </td>
+                                                    <td v-else class="col-num"></td>
                                                 </tr>
                                             </tbody>
                                             <tfoot>
                                                 <tr>
                                                     <td colspan="3"><strong>Kopā</strong></td>
-                                                    <td class="col-num accrued"><strong>{{ row.accrued.toFixed(2) }}</strong></td>
-                                                    <td class="col-num expired"><strong>{{ row.expired > 0 ? row.expired.toFixed(2) : '—' }}</strong></td>
-                                                    <td class="col-num used"><strong>{{ row.used.toFixed(2) }}</strong></td>
+                                                    <td class="col-num"><strong>{{ row.balance_dd.toFixed(2) }} DD</strong></td>
+                                                    <td></td>
                                                 </tr>
                                             </tfoot>
                                         </table>
                                         <p v-else class="no-transactions">Nav darījumu.</p>
-
-                                        <!-- FIFO Batch Details -->
-                                        <div v-if="row.fifo_details && row.fifo_details.length > 0" class="fifo-section">
-                                            <h5>🏭 FIFO partiju izlietojums</h5>
-                                            <div class="fifo-bars">
-                                                <div v-for="(batch, idx) in row.fifo_details" :key="idx" class="fifo-bar">
-                                                    <div class="fifo-label">{{ batch.label }}</div>
-                                                    <div class="fifo-progress">
-                                                        <div class="fifo-consumed" :style="{ width: (batch.consumed / batch.batch_total * 100) + '%' }"></div>
-                                                        <div class="fifo-remaining" :style="{ width: (batch.remaining / batch.batch_total * 100) + '%' }"></div>
-                                                    </div>
-                                                    <div class="fifo-numbers">
-                                                        <span class="fifo-used-num">-{{ batch.consumed.toFixed(2) }}</span>
-                                                        <span class="fifo-left-num">{{ batch.remaining.toFixed(2) }} palicis</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
                                     </div>
                                 </td>
                             </tr>
@@ -286,8 +291,8 @@ function formatAlgoLine(line) {
                                     <div class="algorithm-panel">
                                         <h4>🔬 Aprēķina algoritms</h4>
                                         <div class="algo-lines">
-                                            <div v-for="(line, idx) in row.algorithm" :key="idx" 
-                                                 class="algo-line" 
+                                            <div v-for="(line, idx) in row.algorithm" :key="idx"
+                                                 class="algo-line"
                                                  :class="{ 'algo-bold': line.includes('**'), 'algo-warning': line.startsWith('⚠️'), 'algo-deadline': line.startsWith('📅'), 'algo-expired': line.startsWith('⏰'), 'algo-payment': line.startsWith('💰') || line.startsWith('🚫') || line.startsWith('🏛️') }"
                                                  v-html="formatAlgoLine(line)">
                                             </div>
@@ -305,6 +310,8 @@ function formatAlgoLine(line) {
                                                 <span class="rule-value">{{ row.rules?.measure_unit || 'DD' }}</span>
                                                 <span class="rule-label">Pārnešanas termiņš:</span>
                                                 <span class="rule-value">{{ row.rules?.carry_over_years ? row.rules.carry_over_years + ' gads' : (row.rules?.expires_end_of_period ? 'Perioda beigās (nepārnesās)' : '—') }}</span>
+                                                <span class="rule-label">Finanšu formula:</span>
+                                                <span class="rule-value">{{ getFormulaLabel(row.rules?.financial_formula) }}</span>
                                                 <span class="rule-label">Apmaksas veids:</span>
                                                 <span class="rule-value">{{ row.payment_status || '—' }}</span>
                                             </div>
@@ -408,62 +415,30 @@ function formatAlgoLine(line) {
 </template>
 
 <style scoped>
-/* ═══════════════════════════════════════════════════════ */
-/* DESIGN SYSTEM                                         */
-/* ═══════════════════════════════════════════════════════ */
 .simulator-container {
     max-width: 1500px;
     margin: 0 auto;
     padding: 24px;
     font-family: 'Inter', system-ui, sans-serif;
 }
-
-.page-title {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #1e293b;
-}
-
+.page-title { font-size: 1.5rem; font-weight: 700; color: #1e293b; }
 .section-title {
-    font-size: 1.2rem;
-    font-weight: 700;
-    color: #1e293b;
-    margin-bottom: 16px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    font-size: 1.2rem; font-weight: 700; color: #1e293b;
+    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
 }
 .section-title .icon { font-size: 1.3rem; }
-
-.section-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-}
+.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 
 /* ─── Employee Card ─── */
 .employee-card {
     background: linear-gradient(135deg, #1e40af, #3b82f6);
-    border-radius: 16px;
-    padding: 24px;
-    margin-bottom: 24px;
-    color: white;
+    border-radius: 16px; padding: 24px; margin-bottom: 24px; color: white;
 }
-.employee-info {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-}
+.employee-info { display: flex; align-items: center; gap: 16px; }
 .employee-avatar {
-    width: 56px; height: 56px;
-    background: rgba(255,255,255,0.2);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 1.2rem;
+    width: 56px; height: 56px; background: rgba(255,255,255,0.2);
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 1.2rem;
 }
 .employee-info h3 { font-size: 1.3rem; margin: 0; }
 .employee-info p { margin: 2px 0; opacity: 0.9; font-size: 0.9rem; }
@@ -471,339 +446,169 @@ function formatAlgoLine(line) {
 
 /* ─── Balance Table ─── */
 .balance-section {
-    background: white;
-    border-radius: 16px;
-    padding: 24px;
-    margin-bottom: 24px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    background: white; border-radius: 16px; padding: 24px;
+    margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
-
-.balance-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.88rem;
-}
+.balance-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 .balance-table th {
-    background: #f8fafc;
-    padding: 10px 12px;
-    text-align: left;
-    font-weight: 600;
-    color: #475569;
-    border-bottom: 2px solid #e2e8f0;
-    font-size: 0.76rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    background: #f8fafc; padding: 10px 10px; text-align: left;
+    font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;
+    font-size: 0.73rem; text-transform: uppercase; letter-spacing: 0.05em;
 }
-.balance-table td {
-    padding: 10px 12px;
-    border-bottom: 1px solid #f1f5f9;
-}
-
+.balance-table td { padding: 10px 10px; border-bottom: 1px solid #f1f5f9; }
 .balance-row { cursor: pointer; transition: background 0.15s; }
 .balance-row:hover { background: #f8fafc; }
 .row-has-balance { background: #f0f9ff; }
 .row-expanded { background: #eff6ff; }
-
 .col-num { text-align: right; font-variant-numeric: tabular-nums; }
 .col-balance { font-size: 1em; }
 .col-actions { text-align: center; width: 50px; }
 .col-pay { white-space: nowrap; }
-
 .positive { color: #059669; }
 .negative { color: #dc2626; }
 .accrued { color: #2563eb; }
 .used { color: #dc2626; }
 .expired { color: #d97706; }
-
-.expand-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 0.7rem;
-    color: #94a3b8;
-    padding: 0 6px 0 0;
-}
-
+.expand-btn { background: none; border: none; cursor: pointer; font-size: 0.7rem; color: #94a3b8; padding: 0 6px 0 0; }
 .type-name { font-weight: 500; }
-
 .law-badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 12px;
-    color: white;
-    font-size: 0.72rem;
-    font-weight: 600;
-    white-space: nowrap;
+    display: inline-block; padding: 2px 8px; border-radius: 12px;
+    color: white; font-size: 0.72rem; font-weight: 600; white-space: nowrap;
 }
-
 .payment-badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 0.72rem;
-    font-weight: 600;
-    white-space: nowrap;
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 0.72rem; font-weight: 600; white-space: nowrap;
 }
-
+.formula-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 0.72rem; font-weight: 500; color: #475569;
+    background: #f1f5f9; white-space: nowrap;
+}
 .algo-btn {
-    background: none;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    cursor: pointer;
-    padding: 3px 6px;
-    font-size: 0.95rem;
-    transition: all 0.15s;
+    background: none; border: 1px solid #e2e8f0; border-radius: 8px;
+    cursor: pointer; padding: 3px 6px; font-size: 0.95rem; transition: all 0.15s;
 }
 .algo-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
 
-/* ─── Detail Row: Stock Card ─── */
+/* ─── Detail Row ─── */
 .detail-row td { padding: 0; }
 .stock-card {
-    background: #f8fafc;
-    padding: 20px 24px;
-    border-left: 4px solid #3b82f6;
+    background: #f8fafc; padding: 20px 24px; border-left: 4px solid #3b82f6;
 }
 .stock-card h4 { margin: 0 0 8px; font-size: 1rem; color: #1e293b; }
 .stock-description { font-size: 0.85rem; color: #64748b; margin-bottom: 12px; }
-
 .transactions-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.83rem;
-    background: white;
-    border-radius: 8px;
-    overflow: hidden;
+    width: 100%; border-collapse: collapse; font-size: 0.83rem;
+    background: white; border-radius: 8px; overflow: hidden;
 }
 .transactions-table th {
-    background: #f1f5f9;
-    padding: 8px 10px;
-    text-align: left;
-    font-weight: 600;
-    color: #475569;
-    font-size: 0.76rem;
-    text-transform: uppercase;
+    background: #f1f5f9; padding: 8px 10px; text-align: left;
+    font-weight: 600; color: #475569; font-size: 0.76rem; text-transform: uppercase;
 }
 .transactions-table td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; }
 .transactions-table tfoot td { border-top: 2px solid #e2e8f0; background: #f8fafc; }
-
 .tx-accrual { background: #f0fdf4; }
 .tx-usage { background: #fef2f2; }
 .tx-expiration { background: #fffbeb; }
-
 .tx-badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 0.72rem;
-    font-weight: 600;
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 0.72rem; font-weight: 600;
 }
 .tx-accrual .tx-badge, .tx-badge.tx-accrual { background: #dcfce7; color: #166534; }
 .tx-usage .tx-badge, .tx-badge.tx-usage { background: #fecaca; color: #991b1b; }
 .tx-expiration .tx-badge, .tx-badge.tx-expiration { background: #fef3c7; color: #92400e; }
-
-.desc-cell { max-width: 380px; font-size: 0.8rem; color: #475569; }
+.desc-cell { max-width: 370px; font-size: 0.8rem; color: #475569; }
 .no-transactions { color: #94a3b8; font-style: italic; }
 
-/* ─── FIFO Section ─── */
-.fifo-section {
-    margin-top: 16px;
-    border-top: 1px solid #e2e8f0;
-    padding-top: 12px;
-}
-.fifo-section h5 { margin: 0 0 10px; font-size: 0.9rem; color: #1e293b; }
-
-.fifo-bars { display: flex; flex-direction: column; gap: 8px; }
-.fifo-bar { background: white; border-radius: 8px; padding: 10px 14px; border: 1px solid #e2e8f0; }
-.fifo-label { font-size: 0.8rem; color: #475569; margin-bottom: 6px; }
-.fifo-progress {
-    height: 10px;
-    background: #f1f5f9;
-    border-radius: 5px;
-    display: flex;
-    overflow: hidden;
-}
-.fifo-consumed { background: #f87171; border-radius: 5px 0 0 5px; transition: width 0.3s; }
-.fifo-remaining { background: #34d399; transition: width 0.3s; }
-.fifo-numbers {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.75rem;
-    margin-top: 4px;
-}
-.fifo-used-num { color: #dc2626; font-weight: 600; }
-.fifo-left-num { color: #059669; font-weight: 500; }
+/* ─── Remaining cell (inline FIFO) ─── */
+.remaining-cell { font-size: 0.78rem; }
+.remaining-consumed { color: #d97706; font-weight: 500; }
+.remaining-consumed small { color: #92400e; font-size: 0.72rem; display: block; }
+.remaining-full { color: #059669; font-weight: 500; }
 
 /* ─── Algorithm Panel ─── */
 .algo-row td { padding: 0; }
 .algorithm-panel {
-    background: #fffbeb;
-    padding: 20px 24px;
-    border-left: 4px solid #f59e0b;
+    background: #fffbeb; padding: 20px 24px; border-left: 4px solid #f59e0b;
 }
 .algorithm-panel h4 { margin: 0 0 12px; font-size: 1rem; color: #92400e; }
-
 .algo-lines { margin-bottom: 16px; }
-.algo-line {
-    padding: 3px 0;
-    font-size: 0.85rem;
-    color: #44403c;
-    line-height: 1.5;
-}
+.algo-line { padding: 3px 0; font-size: 0.85rem; color: #44403c; line-height: 1.5; }
 .algo-bold { font-weight: 700; color: #1c1917; }
 .algo-warning { color: #c2410c; font-weight: 500; }
 .algo-deadline { color: #1d4ed8; font-weight: 500; }
 .algo-expired { color: #dc2626; font-weight: 600; background: #fef2f2; padding: 2px 8px; border-radius: 4px; }
 .algo-payment { color: #475569; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; font-weight: 500; }
-
 .algo-rules { border-top: 1px solid #fde68a; padding-top: 12px; }
 .algo-rules h5 { margin: 0 0 8px; font-size: 0.85rem; color: #92400e; }
 .rule-grid {
-    display: grid;
-    grid-template-columns: 180px 1fr;
-    gap: 4px 16px;
-    font-size: 0.8rem;
+    display: grid; grid-template-columns: 180px 1fr; gap: 4px 16px; font-size: 0.8rem;
 }
 .rule-label { color: #78716c; font-weight: 500; }
 .rule-value { color: #1c1917; }
 
 /* ─── Documents ─── */
 .documents-section {
-    background: white;
-    border-radius: 16px;
-    padding: 24px;
-    margin-bottom: 24px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    background: white; border-radius: 16px; padding: 24px;
+    margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
-
-.doc-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.88rem;
-}
+.doc-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
 .doc-table th {
-    background: #f8fafc;
-    padding: 10px 14px;
-    text-align: left;
-    font-weight: 600;
-    color: #475569;
-    border-bottom: 2px solid #e2e8f0;
-    font-size: 0.78rem;
-    text-transform: uppercase;
+    background: #f8fafc; padding: 10px 14px; text-align: left;
+    font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;
+    font-size: 0.78rem; text-transform: uppercase;
 }
 .doc-table td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; }
-
 .doc-type-badge {
-    display: inline-block;
-    padding: 2px 10px;
-    background: #e0e7ff;
-    color: #3730a3;
-    border-radius: 10px;
-    font-size: 0.78rem;
-    font-weight: 600;
+    display: inline-block; padding: 2px 10px; background: #e0e7ff; color: #3730a3;
+    border-radius: 10px; font-size: 0.78rem; font-weight: 600;
 }
-
 .btn-add {
-    background: #2563eb;
-    color: white;
-    border: none;
-    padding: 10px 20px;
-    border-radius: 10px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s;
+    background: #2563eb; color: white; border: none; padding: 10px 20px;
+    border-radius: 10px; font-weight: 600; cursor: pointer; transition: background 0.15s;
 }
 .btn-add:hover { background: #1d4ed8; }
-
 .btn-sm {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 4px;
-    font-size: 1rem;
-    opacity: 0.6;
-    transition: opacity 0.15s;
+    background: none; border: none; cursor: pointer; padding: 4px;
+    font-size: 1rem; opacity: 0.6; transition: opacity 0.15s;
 }
 .btn-sm:hover { opacity: 1; }
 
 /* ─── Modal ─── */
 .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    backdrop-filter: blur(4px);
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000; backdrop-filter: blur(4px);
 }
 .modal-content {
-    background: white;
-    border-radius: 16px;
-    padding: 32px;
-    width: 90%;
-    max-width: 520px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    background: white; border-radius: 16px; padding: 32px;
+    width: 90%; max-width: 520px; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
 }
 .modal-content h3 { margin: 0 0 20px; font-size: 1.2rem; }
-
-.form-group {
-    margin-bottom: 16px;
-}
+.form-group { margin-bottom: 16px; }
 .form-group label {
-    display: block;
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: #374151;
-    margin-bottom: 4px;
+    display: block; font-size: 0.85rem; font-weight: 500;
+    color: #374151; margin-bottom: 4px;
 }
 .form-group input, .form-group select {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid #d1d5db;
-    border-radius: 8px;
-    font-size: 0.9rem;
-    box-sizing: border-box;
+    width: 100%; padding: 10px 12px; border: 1px solid #d1d5db;
+    border-radius: 8px; font-size: 0.9rem; box-sizing: border-box;
 }
 .form-group input:focus, .form-group select:focus {
-    outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+    outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
 }
-
 .form-row { display: flex; gap: 16px; }
 .form-row .form-group { flex: 1; }
-
-.checkbox-label {
-    display: flex !important;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-}
+.checkbox-label { display: flex !important; align-items: center; gap: 8px; cursor: pointer; }
 .checkbox-label input[type="checkbox"] { width: auto; }
-
-.form-actions {
-    display: flex;
-    gap: 12px;
-    justify-content: flex-end;
-    margin-top: 24px;
-}
+.form-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
 .btn-cancel {
-    background: #f1f5f9;
-    color: #475569;
-    border: none;
-    padding: 10px 20px;
-    border-radius: 10px;
-    font-weight: 500;
-    cursor: pointer;
+    background: #f1f5f9; color: #475569; border: none; padding: 10px 20px;
+    border-radius: 10px; font-weight: 500; cursor: pointer;
 }
 .btn-save {
-    background: #2563eb;
-    color: white;
-    border: none;
-    padding: 10px 24px;
-    border-radius: 10px;
-    font-weight: 600;
-    cursor: pointer;
+    background: #2563eb; color: white; border: none; padding: 10px 24px;
+    border-radius: 10px; font-weight: 600; cursor: pointer;
 }
 .btn-save:hover { background: #1d4ed8; }
 .btn-save:disabled { opacity: 0.6; cursor: not-allowed; }

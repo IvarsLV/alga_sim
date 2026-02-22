@@ -40,7 +40,6 @@ class SimulatorController extends Controller
                 'balance_kd' => $data['balance_kd'],
                 'transactions' => $data['transactions'],
                 'algorithm' => $data['algorithm'],
-                'fifo_details' => $data['fifo_details'] ?? [],
                 'payment_status' => $data['payment_status'] ?? 'apmaksāts',
                 'rules' => is_string($data['config']->rules) 
                     ? json_decode($data['config']->rules, true) 

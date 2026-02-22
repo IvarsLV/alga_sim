@@ -116,8 +116,18 @@ class LeaveAccrualService
             ]));
         }
 
-        // Apply FIFO and get batch details
-        $fifoDetails = $this->applyFifoWithDetails($employee, $config->id, $transactions);
+        // Apply FIFO — updates remaining_dd on saved accruals in DB
+        $this->applyFifoWithDetails($employee, $config->id, $transactions);
+
+        // Re-read transactions from DB to get updated remaining_dd
+        $savedTransactions = LeaveTransaction::where('employee_id', $employee->id)
+            ->where('vacation_config_id', $config->id)
+            ->orderBy('period_from', 'asc')
+            ->orderBy('transaction_type', 'asc')
+            ->get()
+            ->map(fn($t) => $t->toArray())
+            ->values()
+            ->toArray();
 
         return [
             'config' => $config,
@@ -126,9 +136,8 @@ class LeaveAccrualService
             'used' => round($totalUsed, 2),
             'balance' => $balance,
             'balance_kd' => round($balance * (7.0 / 5.0), 2),
-            'transactions' => $transactions,
+            'transactions' => $savedTransactions,
             'algorithm' => $algorithm,
-            'fifo_details' => $fifoDetails,
             'payment_status' => $paymentStatus,
         ];
     }
@@ -540,7 +549,12 @@ class LeaveAccrualService
             $childDob = isset($payload['child_dob']) ? Carbon::parse($payload['child_dob']) : null;
 
             if ($childDob) {
+                // Skip events that happened before employment
                 $deadline = $childDob->copy()->addMonths(2);
+                if ($deadline->lt($baseDate)) {
+                    $algorithm[] = "Bērns dz. " . $childDob->format('d.m.Y') . " — termiņš beidzās pirms darba attiecībām, netiek piešķirts.";
+                    continue;
+                }
                 $isExpired = $referenceDate->gt($deadline);
                 $statusLabel = $isExpired ? " ⏰ NOILDZIS" : " ✅ Aktīvs";
 

@@ -95,6 +95,19 @@ const getFormulaLabel = (formula) => {
     if (formula === 'unpaid') return 'Neapmaksāts';
     return formula || '—';
 };
+
+const getLawColor = (lawRef) => {
+    if (!lawRef) return '#6b7280';
+    if (lawRef.includes('149')) return '#2563eb';
+    if (lawRef.includes('150') || lawRef.includes('151')) return '#7c3aed';
+    if (lawRef.includes('153')) return '#dc2626';
+    if (lawRef.includes('154')) return '#db2777';
+    if (lawRef.includes('155')) return '#0891b2';
+    if (lawRef.includes('156')) return '#ea580c';
+    if (lawRef.includes('157')) return '#059669';
+    if (lawRef.includes('74')) return '#d97706';
+    return '#6b7280';
+};
 </script>
 
 <template>
@@ -125,11 +138,13 @@ const getFormulaLabel = (formula) => {
                                 <tr>
                                     <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-500 tracking-wider w-10 text-center uppercase">#</th>
                                     <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-500 tracking-wider uppercase truncate max-w-[150px]">Nosaukums</th>
+                                    <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-500 tracking-wider uppercase">Likums</th>
                                     <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-500 tracking-wider uppercase">Kods</th>
                                     <th scope="col" class="px-3 py-3 text-center text-xs font-semibold text-gray-500 tracking-wider uppercase flex-shrink-0">Uzkrāj.</th>
                                     <th scope="col" class="px-3 py-3 text-center text-xs font-semibold text-gray-500 tracking-wider uppercase">Norma</th>
                                     <th scope="col" class="px-3 py-3 text-center text-xs font-semibold text-gray-500 tracking-wider uppercase">Mērvien.</th>
                                     <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-500 tracking-wider uppercase">Formula</th>
+                                    <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-500 tracking-wider uppercase">Termiņš</th>
                                     <th scope="col" class="px-3 py-3 text-right text-xs font-semibold text-gray-500 tracking-wider uppercase">Darbības</th>
                                 </tr>
                             </thead>
@@ -143,6 +158,11 @@ const getFormulaLabel = (formula) => {
                                         <div class="text-xs text-gray-400 mt-1 max-w-sm truncate" :title="config.description">
                                             {{ config.description || 'Nav apraksta' }}
                                         </div>
+                                    </td>
+                                    <td class="px-3 py-3 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold text-white" :style="{ backgroundColor: getLawColor((typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.law_reference) }">
+                                            {{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.law_reference || '—' }}
+                                        </span>
                                     </td>
                                     <td class="px-3 py-3 whitespace-nowrap">
                                         <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-xs font-semibold text-gray-500 font-mono">
@@ -164,6 +184,23 @@ const getFormulaLabel = (formula) => {
                                             {{ getFormulaLabel((typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.financial_formula) }}
                                         </span>
                                     </td>
+                                    <td class="px-3 py-3 whitespace-nowrap text-xs text-gray-600">
+                                        <template v-if="(typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.carry_over_years">
+                                            <span class="text-blue-600 font-medium">{{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.carry_over_years }} g. pārnešana</span>
+                                        </template>
+                                        <template v-else-if="(typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.expires_end_of_period">
+                                            <span class="text-amber-600 font-medium">Perioda beigās</span>
+                                        </template>
+                                        <template v-else-if="(typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.usage_deadline_months">
+                                            <span class="text-red-600 font-medium">{{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.usage_deadline_months }} mēn.</span>
+                                        </template>
+                                        <template v-else-if="(typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.usage_deadline_days">
+                                            <span class="text-red-600 font-medium">{{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.usage_deadline_days }} d.</span>
+                                        </template>
+                                        <template v-else>
+                                            <span class="text-gray-400">—</span>
+                                        </template>
+                                    </td>
                                     <td class="px-3 py-3 whitespace-nowrap text-right text-sm space-x-1">
                                         <button class="inline-flex items-center px-2 py-1 border border-gray-200 text-gray-600 rounded text-xs font-medium hover:bg-gray-50 transition">Apraksts</button>
                                         <button @click="openEdit(config)" class="inline-flex items-center px-2 py-1 border border-blue-200 text-blue-600 rounded text-xs font-medium hover:bg-blue-50 transition">Rediģēt</button>
@@ -171,7 +208,7 @@ const getFormulaLabel = (formula) => {
                                     </td>
                                 </tr>
                                 <tr v-if="configs.length === 0">
-                                    <td colspan="7" class="px-6 py-8 text-center text-gray-500">Nav atrasta neviena politika.</td>
+                                    <td colspan="10" class="px-6 py-8 text-center text-gray-500">Nav atrasta neviena politika.</td>
                                 </tr>
                             </tbody>
                         </table>
