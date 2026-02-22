@@ -133,82 +133,71 @@ const getLawColor = (lawRef) => {
                 
                 <div class="bg-white rounded-lg shadow overflow-hidden border border-gray-100">
                     <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
+                        <table class="min-w-full divide-y divide-gray-200 table-fixed">
                             <thead class="bg-white">
                                 <tr>
-                                    <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-500 tracking-wider w-10 text-center uppercase">#</th>
-                                    <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-500 tracking-wider uppercase truncate max-w-[150px]">Nosaukums</th>
-                                    <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-500 tracking-wider uppercase">Likums</th>
-                                    <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-500 tracking-wider uppercase">Kods</th>
-                                    <th scope="col" class="px-3 py-3 text-center text-xs font-semibold text-gray-500 tracking-wider uppercase flex-shrink-0">Uzkrāj.</th>
-                                    <th scope="col" class="px-3 py-3 text-center text-xs font-semibold text-gray-500 tracking-wider uppercase">Norma</th>
-                                    <th scope="col" class="px-3 py-3 text-center text-xs font-semibold text-gray-500 tracking-wider uppercase">Mērvien.</th>
-                                    <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-500 tracking-wider uppercase">Formula</th>
-                                    <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-500 tracking-wider uppercase">Termiņš</th>
-                                    <th scope="col" class="px-3 py-3 text-right text-xs font-semibold text-gray-500 tracking-wider uppercase">Darbības</th>
+                                    <th scope="col" class="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 tracking-wider w-8 text-center uppercase">#</th>
+                                    <th scope="col" class="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 tracking-wider uppercase">Nosaukums</th>
+                                    <th scope="col" class="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-20">Likums</th>
+                                    <th scope="col" class="px-2 py-2 text-center text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-12">Uzkr.</th>
+                                    <th scope="col" class="px-2 py-2 text-center text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-14">Norma</th>
+                                    <th scope="col" class="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-24">Formula</th>
+                                    <th scope="col" class="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-24">Termiņš</th>
+                                    <th scope="col" class="px-2 py-2 text-right text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-20">Darbības</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-100">
                                 <tr v-for="config in configs" :key="config.id" class="hover:bg-gray-50/50 transition-colors">
-                                    <td class="px-3 py-4 whitespace-nowrap text-sm text-gray-400 text-center font-medium">
+                                    <td class="px-2 py-3 whitespace-nowrap text-xs text-gray-400 text-center font-medium">
                                         {{ config.id }}
                                     </td>
-                                    <td class="px-3 py-4">
-                                        <div class="text-sm font-semibold text-gray-800 line-clamp-1 truncate max-w-[200px]" :title="config.name">{{ config.name }}</div>
-                                        <div class="text-xs text-gray-400 mt-1 max-w-sm truncate" :title="config.description">
+                                    <td class="px-2 py-3">
+                                        <div class="text-sm font-semibold text-gray-800 truncate" :title="config.name">{{ config.name }}</div>
+                                        <div class="text-[11px] text-gray-400 mt-0.5 truncate max-w-[280px]" :title="config.description">
                                             {{ config.description || 'Nav apraksta' }}
                                         </div>
                                     </td>
-                                    <td class="px-3 py-3 whitespace-nowrap">
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold text-white" :style="{ backgroundColor: getLawColor((typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.law_reference) }">
+                                    <td class="px-2 py-3 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold text-white" :style="{ backgroundColor: getLawColor((typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.law_reference) }">
                                             {{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.law_reference || '—' }}
                                         </span>
                                     </td>
-                                    <td class="px-3 py-3 whitespace-nowrap">
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-xs font-semibold text-gray-500 font-mono">
-                                            {{ config.tip }}
-                                        </span>
-                                    </td>
-                                    <td class="px-3 py-3 whitespace-nowrap text-center text-sm">
+                                    <td class="px-2 py-3 whitespace-nowrap text-center text-xs">
                                         <span v-if="config.is_accruable" class="text-emerald-500 font-medium">Jā</span>
                                         <span v-else class="text-gray-400 font-medium">Nē</span>
                                     </td>
-                                    <td class="px-3 py-3 whitespace-nowrap text-center text-sm text-gray-600 font-medium">
+                                    <td class="px-2 py-3 whitespace-nowrap text-center text-xs text-gray-600 font-medium">
                                         {{ config.is_accruable ? config.norm_days : '—' }}
                                     </td>
-                                    <td class="px-3 py-3 whitespace-nowrap text-center text-sm font-semibold text-gray-700">
-                                        {{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.measure_unit || 'DD' }}
-                                    </td>
-                                    <td class="px-3 py-3 whitespace-nowrap">
-                                        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] uppercase tracking-wider font-bold" :class="getFormulaBadgeClass((typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.financial_formula)">
+                                    <td class="px-2 py-3 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-bold" :class="getFormulaBadgeClass((typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.financial_formula)">
                                             {{ getFormulaLabel((typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.financial_formula) }}
                                         </span>
                                     </td>
-                                    <td class="px-3 py-3 whitespace-nowrap text-xs text-gray-600">
+                                    <td class="px-2 py-3 whitespace-nowrap text-[11px] text-gray-600">
                                         <template v-if="(typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.carry_over_years">
-                                            <span class="text-blue-600 font-medium">{{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.carry_over_years }} g. pārnešana</span>
+                                            <span class="text-blue-600 font-medium">{{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.carry_over_years }}g. pārn.</span>
                                         </template>
                                         <template v-else-if="(typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.expires_end_of_period">
-                                            <span class="text-amber-600 font-medium">Perioda beigās</span>
+                                            <span class="text-amber-600 font-medium">Per. beigās</span>
                                         </template>
                                         <template v-else-if="(typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.usage_deadline_months">
                                             <span class="text-red-600 font-medium">{{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.usage_deadline_months }} mēn.</span>
                                         </template>
                                         <template v-else-if="(typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.usage_deadline_days">
-                                            <span class="text-red-600 font-medium">{{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.usage_deadline_days }} d.</span>
+                                            <span class="text-red-600 font-medium">{{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.usage_deadline_days }}d.</span>
                                         </template>
                                         <template v-else>
                                             <span class="text-gray-400">—</span>
                                         </template>
                                     </td>
-                                    <td class="px-3 py-3 whitespace-nowrap text-right text-sm space-x-1">
-                                        <button class="inline-flex items-center px-2 py-1 border border-gray-200 text-gray-600 rounded text-xs font-medium hover:bg-gray-50 transition">Apraksts</button>
-                                        <button @click="openEdit(config)" class="inline-flex items-center px-2 py-1 border border-blue-200 text-blue-600 rounded text-xs font-medium hover:bg-blue-50 transition">Rediģēt</button>
-                                        <button @click="deletePolicy(config.id)" class="inline-flex items-center px-2 py-1 border border-red-200 text-red-500 rounded text-xs font-medium hover:bg-red-50 transition">Dzēst</button>
+                                    <td class="px-2 py-3 whitespace-nowrap text-right text-xs space-x-1">
+                                        <button @click="openEdit(config)" class="inline-flex items-center px-1.5 py-0.5 border border-blue-200 text-blue-600 rounded text-[10px] font-medium hover:bg-blue-50 transition">✏️</button>
+                                        <button @click="deletePolicy(config.id)" class="inline-flex items-center px-1.5 py-0.5 border border-red-200 text-red-500 rounded text-[10px] font-medium hover:bg-red-50 transition">🗑️</button>
                                     </td>
                                 </tr>
                                 <tr v-if="configs.length === 0">
-                                    <td colspan="10" class="px-6 py-8 text-center text-gray-500">Nav atrasta neviena politika.</td>
+                                    <td colspan="8" class="px-6 py-8 text-center text-gray-500">Nav atrasta neviena politika.</td>
                                 </tr>
                             </tbody>
                         </table>
