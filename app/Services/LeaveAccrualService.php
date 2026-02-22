@@ -95,15 +95,38 @@ class LeaveAccrualService
         $usageTransactions = $this->processUsage($employee, $config, $baseDate, $referenceDate);
         $transactions = array_merge($transactions, $usageTransactions);
 
+        // ----- MOCK FIFO IN-MEMORY TO CALCULATE remaining_dd FOR EXPIRATION -----
+        $tempUsed = abs(collect($transactions)->where('transaction_type', 'usage')->sum('days_dd'));
+        $tempOut = abs(collect($transactions)->where('transaction_type', 'transferred_out')->sum('days_dd'));
+        $tempConsume = $tempUsed + $tempOut;
+
+        // Sort chronologically for FIFO
+        usort($transactions, function($a, $b) {
+            return strcmp($a['period_from'], $b['period_from']);
+        });
+
+        foreach ($transactions as &$t) {
+            if (in_array($t['transaction_type'], ['accrual', 'transferred_in'])) {
+                $available = (float) $t['days_dd'];
+                $consume = min($tempConsume, $available);
+                $t['remaining_dd'] = $available - $consume;
+                $tempConsume -= $consume;
+            }
+        }
+        unset($t);
+        // --------------------------------------------------------------------------
+
         // Apply expiration BEFORE totals (generic, rules-driven)
         $expirationTransactions = $this->applyExpiration($transactions, $config, $rules, $referenceDate, $algorithm);
         $transactions = array_merge($transactions, $expirationTransactions);
 
         // Calculate totals
-        $totalAccrued = collect($transactions)->where('transaction_type', 'accrual')->sum('days_dd');
+        $totalAccrued = collect($transactions)->whereIn('transaction_type', ['accrual', 'transferred_in'])->sum('days_dd');
         $totalExpired = abs(collect($transactions)->where('transaction_type', 'expiration')->sum('days_dd'));
         $totalUsed = abs(collect($transactions)->where('transaction_type', 'usage')->sum('days_dd'));
-        $balance = round($totalAccrued - $totalExpired - $totalUsed, 2);
+        $totalOut = abs(collect($transactions)->where('transaction_type', 'transferred_out')->sum('days_dd'));
+        
+        $balance = round($totalAccrued - $totalExpired - $totalUsed - $totalOut, 2);
 
         // Save to DB
         foreach ($transactions as $t) {
@@ -154,9 +177,11 @@ class LeaveAccrualService
         $usageDeadlineMonths = $rules['usage_deadline_months'] ?? null;
         $periodType = $rules['period_type'] ?? 'working_year';
 
-        $accruals = collect($accrualTransactions)->where('transaction_type', 'accrual');
+        $accruals = collect($accrualTransactions)->whereIn('transaction_type', ['accrual', 'transferred_in']);
 
         foreach ($accruals as $t) {
+            if (($t['remaining_dd'] ?? 0) <= 0) continue; // Skip if fully consumed by mock FIFO
+
             $expired = false;
             $reason = '';
             $periodEnd = Carbon::parse($t['period_to']);
@@ -205,15 +230,17 @@ class LeaveAccrualService
             }
 
             if ($expired) {
+                $expiredDays = abs((float) $t['remaining_dd']); // Expire ONLY the unused portion!
+
                 if ($expiresByAddingToAnnual) {
                     $expirations[] = [
                         'transaction_type' => 'transferred_out',
                         'period_from' => $t['period_from'],
                         'period_to' => $t['period_to'],
-                        'days_dd' => -abs((float) $t['days_dd']),
+                        'days_dd' => -$expiredDays,
                         'remaining_dd' => 0,
                         'document_id' => null,
-                        'description' => "🔄 Pievienots ikgadējam: " . abs((float) $t['days_dd']) . " DD (" . $reason . ")",
+                        'description' => "🔄 Pievienots ikgadējam: " . $expiredDays . " DD (" . $reason . ")",
                     ];
                     
                     // We also inject a 'transferred_in' transaction for Tip=1 (Ikgadējais)
@@ -222,25 +249,25 @@ class LeaveAccrualService
                         'target_tip' => 1,
                         'period_from' => $t['period_from'],
                         'period_to' => $t['period_to'],
-                        'days_dd' => abs((float) $t['days_dd']),
-                        'remaining_dd' => abs((float) $t['days_dd']),
+                        'days_dd' => $expiredDays,
+                        'remaining_dd' => $expiredDays,
                         'document_id' => null,
                         'description' => "🔄 Pārnests no " . $config->name . " (" . Carbon::parse($t['period_from'])->format('d.m.Y') . ")",
                     ];
 
-                    $algorithm[] = "🔄 Pārnests uz ikgadējo: " . round(abs((float) $t['days_dd']), 2) . " DD par periodu " .
+                    $algorithm[] = "🔄 Pārnests uz ikgadējo: " . round($expiredDays, 2) . " DD par periodu " .
                         Carbon::parse($t['period_from'])->format('d.m.Y') . "–" . Carbon::parse($t['period_to'])->format('d.m.Y');
                 } else {
                     $expirations[] = [
                         'transaction_type' => 'expiration',
                         'period_from' => $t['period_from'],
                         'period_to' => $t['period_to'],
-                        'days_dd' => -abs((float) $t['days_dd']),
+                        'days_dd' => -$expiredDays,
                         'remaining_dd' => 0,
                         'document_id' => null,
-                        'description' => "⏰ Noilgums: " . abs((float) $t['days_dd']) . " DD (" . $reason . ")",
+                        'description' => "⏰ Noilgums: " . $expiredDays . " DD (" . $reason . ")",
                     ];
-                    $algorithm[] = "⏰ Noilgums: " . round(abs((float) $t['days_dd']), 2) . " DD par periodu " .
+                    $algorithm[] = "⏰ Noilgums: " . round($expiredDays, 2) . " DD par periodu " .
                         Carbon::parse($t['period_from'])->format('d.m.Y') . "–" . Carbon::parse($t['period_to'])->format('d.m.Y');
                 }
             }
@@ -291,7 +318,14 @@ class LeaveAccrualService
                 ->sum('days_dd')
         );
 
-        $totalToConsume = $totalExpired + $totalUsed;
+        $totalOut = abs(
+            LeaveTransaction::where('employee_id', $employee->id)
+                ->where('vacation_config_id', $configId)
+                ->where('transaction_type', 'transferred_out')
+                ->sum('days_dd')
+        );
+
+        $totalToConsume = $totalExpired + $totalUsed + $totalOut;
 
         if ($totalToConsume <= 0) {
             foreach ($accruals as $accrual) {
@@ -612,7 +646,7 @@ class LeaveAccrualService
                     'transaction_type' => 'transferred_out',
                     'period_from' => $eventDate->toDateString(),
                     'period_to' => $eventDate->toDateString(),
-                    'days_dd' => 0, // Out transactions don't add to balance directly
+                    'days_dd' => -$eventDays,
                     'remaining_dd' => 0,
                     'document_id' => $doc->id,
                     'description' => "🔄 Pievienots ikgadējam: {$eventDays} DD (notikums " . $eventDate->format('d.m.Y') . ")",
