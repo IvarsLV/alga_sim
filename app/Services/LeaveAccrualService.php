@@ -149,6 +149,7 @@ class LeaveAccrualService
 
         $carryOverYears = $rules['carry_over_years'] ?? null;
         $expiresEndOfPeriod = $rules['expires_end_of_period'] ?? false;
+        $expiresByAddingToAnnual = $rules['expires_by_adding_to_annual'] ?? false;
         $usageDeadlineDays = $rules['usage_deadline_days'] ?? null;
         $usageDeadlineMonths = $rules['usage_deadline_months'] ?? null;
         $periodType = $rules['period_type'] ?? 'working_year';
@@ -204,17 +205,44 @@ class LeaveAccrualService
             }
 
             if ($expired) {
-                $expirations[] = [
-                    'transaction_type' => 'expiration',
-                    'period_from' => $t['period_from'],
-                    'period_to' => $t['period_to'],
-                    'days_dd' => -abs((float) $t['days_dd']),
-                    'remaining_dd' => 0,
-                    'document_id' => null,
-                    'description' => "⏰ Noilgums: " . abs((float) $t['days_dd']) . " DD (" . $reason . ")",
-                ];
-                $algorithm[] = "⏰ Noilgums: " . round(abs((float) $t['days_dd']), 2) . " DD par periodu " .
-                    Carbon::parse($t['period_from'])->format('d.m.Y') . "–" . Carbon::parse($t['period_to'])->format('d.m.Y');
+                if ($expiresByAddingToAnnual) {
+                    $expirations[] = [
+                        'transaction_type' => 'transferred_out',
+                        'period_from' => $t['period_from'],
+                        'period_to' => $t['period_to'],
+                        'days_dd' => -abs((float) $t['days_dd']),
+                        'remaining_dd' => 0,
+                        'document_id' => null,
+                        'description' => "🔄 Pievienots ikgadējam: " . abs((float) $t['days_dd']) . " DD (" . $reason . ")",
+                    ];
+                    
+                    // We also inject a 'transferred_in' transaction for Tip=1 (Ikgadējais)
+                    $expirations[] = [
+                        'transaction_type' => 'transferred_in',
+                        'target_tip' => 1,
+                        'period_from' => $t['period_from'],
+                        'period_to' => $t['period_to'],
+                        'days_dd' => abs((float) $t['days_dd']),
+                        'remaining_dd' => abs((float) $t['days_dd']),
+                        'document_id' => null,
+                        'description' => "🔄 Pārnests no " . $config->name . " (" . Carbon::parse($t['period_from'])->format('d.m.Y') . ")",
+                    ];
+
+                    $algorithm[] = "🔄 Pārnests uz ikgadējo: " . round(abs((float) $t['days_dd']), 2) . " DD par periodu " .
+                        Carbon::parse($t['period_from'])->format('d.m.Y') . "–" . Carbon::parse($t['period_to'])->format('d.m.Y');
+                } else {
+                    $expirations[] = [
+                        'transaction_type' => 'expiration',
+                        'period_from' => $t['period_from'],
+                        'period_to' => $t['period_to'],
+                        'days_dd' => -abs((float) $t['days_dd']),
+                        'remaining_dd' => 0,
+                        'document_id' => null,
+                        'description' => "⏰ Noilgums: " . abs((float) $t['days_dd']) . " DD (" . $reason . ")",
+                    ];
+                    $algorithm[] = "⏰ Noilgums: " . round(abs((float) $t['days_dd']), 2) . " DD par periodu " .
+                        Carbon::parse($t['period_from'])->format('d.m.Y') . "–" . Carbon::parse($t['period_to'])->format('d.m.Y');
+                }
             }
         }
 
