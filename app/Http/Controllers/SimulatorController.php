@@ -7,16 +7,12 @@ use Inertia\Inertia;
 use App\Models\Employee;
 use App\Models\Document;
 use App\Models\VacationConfig;
-use App\Services\AverageSalaryService;
-use App\Services\VacationBalanceService;
-use App\Services\VacationPayCalculator;
+use App\Services\LeaveAccrualService;
 
 class SimulatorController extends Controller
 {
-    public function index(
-        AverageSalaryService $averageSalaryService, 
-        VacationBalanceService $vacationBalanceService
-    ) {
+    public function index(LeaveAccrualService $leaveAccrualService)
+    {
         $employee = Employee::first();
         
         if (!$employee) {
@@ -26,9 +22,34 @@ class SimulatorController extends Controller
         $documents = Document::where('employee_id', $employee->id)->orderBy('date_from', 'desc')->get();
         $vacationConfigs = VacationConfig::all();
         
-        $averageSalaryData = $averageSalaryService->calculateDailyAverageWithLog($employee);
-        $vacationBalanceData = $vacationBalanceService->getBalanceWithLog($employee);
-        
+        // Calculate all leave balances
+        $leaveData = $leaveAccrualService->calculateAll($employee);
+
+        // Apply FIFO for each type
+        foreach ($leaveData as $configId => $data) {
+            $leaveAccrualService->applyFifo($employee, $configId);
+        }
+
+        // Build balance table for frontend
+        $balanceTable = [];
+        foreach ($leaveData as $configId => $data) {
+            $balanceTable[] = [
+                'config_id' => $configId,
+                'config_name' => $data['config']->name,
+                'config_tip' => $data['config']->tip,
+                'description' => $data['config']->description,
+                'accrued' => $data['accrued'],
+                'used' => $data['used'],
+                'balance_dd' => $data['balance'],
+                'balance_kd' => $data['balance_kd'],
+                'transactions' => $data['transactions'],
+                'algorithm' => $data['algorithm'],
+                'rules' => is_string($data['config']->rules) 
+                    ? json_decode($data['config']->rules, true) 
+                    : ($data['config']->rules ?? []),
+            ];
+        }
+
         $hasHireDoc = Document::where('employee_id', $employee->id)->where('type', 'hire')->exists();
 
         return Inertia::render('VacationSimulator', [
@@ -36,19 +57,11 @@ class SimulatorController extends Controller
             'documents' => $documents,
             'vacationConfigs' => $vacationConfigs,
             'hasHireDocument' => $hasHireDoc,
-            'stats' => [
-                'averageSalary' => $averageSalaryData['average'],
-                'averageSalaryLog' => $averageSalaryData['log'],
-                'vacationBalance' => $vacationBalanceData['balance'],
-                'vacationBalanceDD' => $vacationBalanceData['balanceDD'] ?? 0,
-                'vacationBalanceKD' => $vacationBalanceData['balanceKD'] ?? 0,
-                'vacationBalanceLog' => $vacationBalanceData['log'],
-                'vacationBalanceUnit' => $vacationBalanceData['unit'] ?? 'dienas',
-            ]
+            'balanceTable' => $balanceTable,
         ]);
     }
 
-    public function storeDocument(Request $request, VacationPayCalculator $vacationPayCalculator)
+    public function storeDocument(Request $request)
     {
         $validated = $request->validate([
             'employee_id' => 'required|exists:employees,id',
@@ -56,27 +69,10 @@ class SimulatorController extends Controller
             'date_from' => 'nullable|date|required_unless:type,child_registration',
             'date_to' => 'nullable|date|after_or_equal:date_from',
             'days' => 'nullable|numeric',
-            'amount' => 'nullable|numeric',
             'payload' => 'nullable|array',
             'vacation_config_id' => 'nullable|exists:vacation_configs,id'
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
-        
-        // Auto-calculate amount if it's a type of vacation
-        if (!empty($validated['vacation_config_id'])) {
-            $config = VacationConfig::find($validated['vacation_config_id']);
-            $days = $validated['days'] ?: 1;
-            
-            $validated['amount'] = $vacationPayCalculator->calculateAmount(
-                $employee, 
-                $config, 
-                $days,
-                $validated['date_from'] ?? null,
-                $validated['date_to'] ?? null
-            );
-        }
-        
         $payload = $request->input('payload', []);
         if (!empty($validated['vacation_config_id'])) {
             $payload['vacation_config_id'] = $validated['vacation_config_id'];
@@ -88,7 +84,7 @@ class SimulatorController extends Controller
         return redirect()->back();
     }
 
-    public function updateDocument(Request $request, Document $document, VacationPayCalculator $vacationPayCalculator)
+    public function updateDocument(Request $request, Document $document)
     {
         $validated = $request->validate([
             'employee_id' => 'required|exists:employees,id',
@@ -96,27 +92,10 @@ class SimulatorController extends Controller
             'date_from' => 'nullable|date|required_unless:type,child_registration',
             'date_to' => 'nullable|date|after_or_equal:date_from',
             'days' => 'nullable|numeric',
-            'amount' => 'nullable|numeric',
             'payload' => 'nullable|array',
             'vacation_config_id' => 'nullable|exists:vacation_configs,id'
         ]);
 
-        $employee = Employee::findOrFail($validated['employee_id']);
-        
-        // Auto-calculate amount if it's a type of vacation
-        if (!empty($validated['vacation_config_id'])) {
-            $config = VacationConfig::find($validated['vacation_config_id']);
-            $days = $validated['days'] ?: 1;
-            
-            $validated['amount'] = $vacationPayCalculator->calculateAmount(
-                $employee, 
-                $config, 
-                $days,
-                $validated['date_from'] ?? null,
-                $validated['date_to'] ?? null
-            );
-        }
-        
         $payload = $request->input('payload', []);
         if (!empty($validated['vacation_config_id'])) {
             $payload['vacation_config_id'] = $validated['vacation_config_id'];

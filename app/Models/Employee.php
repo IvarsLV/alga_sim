@@ -12,19 +12,22 @@ class Employee extends Model
         'sakdatums',
         'amats',
         'nodala',
-        'alga',
     ];
 
     protected function casts(): array
     {
         return [
             'sakdatums' => 'date',
-            'alga' => 'decimal:2',
         ];
     }
 
     public function documents()
     {
         return $this->hasMany(Document::class);
+    }
+
+    public function leaveTransactions()
+    {
+        return $this->hasMany(LeaveTransaction::class);
     }
 }

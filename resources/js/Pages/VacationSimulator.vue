@@ -1,496 +1,728 @@
 <script setup>
+import { ref, computed } from 'vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, useForm, router } from '@inertiajs/vue3';
-import { ref, watch, computed } from 'vue';
-import InputLabel from '@/Components/InputLabel.vue';
-import TextInput from '@/Components/TextInput.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import SecondaryButton from '@/Components/SecondaryButton.vue';
-import Modal from '@/Components/Modal.vue';
-import DangerButton from '@/Components/DangerButton.vue';
 
 const props = defineProps({
     employee: Object,
     documents: Array,
     vacationConfigs: Array,
-    stats: Object,
-    hasHireDocument: {
-        type: Boolean,
-        default: false
-    }
+    hasHireDocument: Boolean,
+    balanceTable: Array,
 });
 
-const isFormOpen = ref(false);
-const editMode = ref(false);
+// ─── State ───
+const expandedRows = ref({});
+const showAlgorithm = ref({});
+const showDocForm = ref(false);
+const editingDoc = ref(null);
 
 const form = useForm({
-    id: null,
     employee_id: props.employee.id,
     type: 'vacation',
     date_from: '',
     date_to: '',
-    days: '',
-    amount: '',
-    vacation_config_id: '',
+    days: null,
     payload: {},
+    vacation_config_id: null,
 });
 
-const openCreate = () => {
-    editMode.value = false;
+// ─── Computed ───
+const nonSalaryDocs = computed(() =>
+    props.documents.filter(d => d.type !== 'salary_calculation')
+);
+
+const docTypes = [
+    { value: 'hire', label: 'Pieņemšana darbā' },
+    { value: 'vacation', label: 'Atvaļinājums' },
+    { value: 'child_registration', label: 'Bērna reģistrācija' },
+    { value: 'unpaid_leave', label: 'Bezalgas atvaļinājums' },
+    { value: 'study_leave', label: 'Mācību atvaļinājums' },
+    { value: 'donor_day', label: 'Donora diena' },
+];
+
+const isVacationType = computed(() =>
+    ['vacation', 'unpaid_leave', 'study_leave', 'donor_day'].includes(form.type)
+);
+
+// ─── Methods ───
+function toggleRow(configId) {
+    expandedRows.value[configId] = !expandedRows.value[configId];
+}
+
+function toggleAlgorithm(configId) {
+    showAlgorithm.value[configId] = !showAlgorithm.value[configId];
+}
+
+function formatDate(d) {
+    if (!d) return '—';
+    const dt = new Date(d);
+    return dt.toLocaleDateString('lv-LV', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function getDocTypeLabel(type) {
+    const found = docTypes.find(t => t.value === type);
+    return found ? found.label : type;
+}
+
+function getConfigName(doc) {
+    const payload = typeof doc.payload === 'string' ? JSON.parse(doc.payload) : doc.payload;
+    const configId = payload?.vacation_config_id;
+    if (!configId) return '';
+    const config = props.vacationConfigs.find(c => c.id === configId);
+    return config ? config.name : '';
+}
+
+function openNewDoc() {
+    editingDoc.value = null;
     form.reset();
     form.employee_id = props.employee.id;
     form.type = 'vacation';
-    isFormOpen.value = true;
-};
+    showDocForm.value = true;
+}
 
-const openEdit = (doc) => {
-    editMode.value = true;
-    form.id = doc.id;
+function editDoc(doc) {
+    editingDoc.value = doc;
+    const payload = typeof doc.payload === 'string' ? JSON.parse(doc.payload) : doc.payload;
     form.employee_id = doc.employee_id;
     form.type = doc.type;
-    
-    // For child registration, ensure date_from is populated so the DB constraint passes.
-    // The backend handles saving the actual DOB in the payload.
-    form.date_from = doc.date_from || new Date().toISOString().split('T')[0];
-    form.date_to = doc.date_to;
+    form.date_from = doc.date_from ? doc.date_from.split('T')[0] : '';
+    form.date_to = doc.date_to ? doc.date_to.split('T')[0] : '';
     form.days = doc.days;
-    form.amount = doc.amount;
-    
-    let payload = typeof doc.payload === 'string' ? JSON.parse(doc.payload) : doc.payload;
     form.payload = payload || {};
-    form.vacation_config_id = form.payload.vacation_config_id || '';
+    form.vacation_config_id = payload?.vacation_config_id || null;
+    showDocForm.value = true;
+}
 
-    isFormOpen.value = true;
-};
-
-const submitForm = () => {
-    if (editMode.value) {
-        form.put(route('documents.update', form.id), {
-            preserveScroll: true,
-            onSuccess: () => {
-                isFormOpen.value = false;
-                form.reset();
-            }
+function saveDoc() {
+    if (editingDoc.value) {
+        form.put(route('documents.update', editingDoc.value.id), {
+            onSuccess: () => { showDocForm.value = false; editingDoc.value = null; },
         });
     } else {
         form.post(route('documents.store'), {
-            preserveScroll: true,
-            onSuccess: () => {
-                isFormOpen.value = false;
-                form.reset();
-            },
+            onSuccess: () => { showDocForm.value = false; },
         });
     }
-};
+}
 
-const confirmingDocumentDeletion = ref(false);
-const documentToDelete = ref(null);
-
-const confirmDeletion = (id) => {
-    documentToDelete.value = id;
-    confirmingDocumentDeletion.value = true;
-};
-
-const deleteDoc = () => {
-    if (documentToDelete.value) {
-        router.delete(route('documents.destroy', documentToDelete.value), {
-            preserveScroll: true,
-            onSuccess: () => {
-                confirmingDocumentDeletion.value = false;
-                documentToDelete.value = null;
-            },
-        });
+function deleteDoc(doc) {
+    if (confirm('Dzēst šo dokumentu?')) {
+        router.delete(route('documents.destroy', doc.id));
     }
-};
+}
 
-const closeModal = () => {
-    confirmingDocumentDeletion.value = false;
-    documentToDelete.value = null;
-};
-
-const formatDate = (val) => {
-    if (!val) return '';
-    return String(val).split('T')[0];
-};
-
-const parseLocalDate = (dateStr) => {
-    if (!dateStr) return null;
-    // Take only YYYY-MM-DD part — database may return full datetime string
-    const datePart = String(dateStr).substring(0, 10);
-    const [year, month, day] = datePart.split('-');
-    return new Date(Number(year), Number(month) - 1, Number(day));
-};
-
-const calculateWorkingDays = (startStr, endStr) => {
-    const start = parseLocalDate(startStr);
-    const end = parseLocalDate(endStr);
-    if (!start || !end || start > end) return 0;
-
-    let count = 0;
-    let current = new Date(start);
-    while (current <= end) {
-        const dayOfWeek = current.getDay();
-        if (dayOfWeek !== 0 && dayOfWeek !== 6) { // 0 = Sunday, 6 = Saturday
-            count++;
-        }
-        current.setDate(current.getDate() + 1);
-    }
-    return count;
-};
-
-const calculateCalendarDays = (startStr, endStr) => {
-    const start = parseLocalDate(startStr);
-    const end = parseLocalDate(endStr);
-    if (!start || !end || start > end) return 0;
-    
-    // Calculate difference in milliseconds, disregarding daylight saving offsets by zeroing hours
-    const utc1 = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
-    const utc2 = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
-    
-    return Math.floor((utc2 - utc1) / (1000 * 60 * 60 * 24)) + 1;
-};
-
-// Auto-calculate days when date_from, date_to, type, or vacation policy changes.
-watch([() => form.date_from, () => form.date_to, () => form.type, () => form.vacation_config_id], ([newFrom, newTo, newType, newConfigId]) => {
-    if (newFrom && newTo) {
-        if (newType === 'salary_calculation') {
-            form.days = calculateWorkingDays(newFrom, newTo);
-        } else if (newType === 'vacation' && newConfigId) {
-            const conf = props.vacationConfigs.find(c => c.id === newConfigId);
-            if (conf) {
-                let rules = conf.rules;
-                if (typeof rules === 'string') rules = JSON.parse(rules);
-                const unit = rules?.measure_unit || 'DD';
-                if (unit === 'KD') {
-                    form.days = calculateCalendarDays(newFrom, newTo);
-                } else {
-                    form.days = calculateWorkingDays(newFrom, newTo);
-                }
-            }
-        }
-    }
-});
-
-const documentTypes = [
-    { value: 'hire', label: 'Pieņemšana darbā' },
-    { value: 'salary_calculation', label: 'Algas aprēķins' },
-    { value: 'vacation', label: 'Atvaļinājumi un prombūtnes' },
-    { value: 'child_registration', label: 'Bērna reģistrācija' },
-];
-
-const getTypeLabel = (val) => {
-    const found = documentTypes.find(t => t.value === val);
-    return found ? found.label : val;
-};
-
-const getTypeName = (doc) => {
-    let lbl = getTypeLabel(doc.type);
-    if (doc.payload && doc.payload.vacation_config_id) {
-        const conf = props.vacationConfigs.find(c => c.id === doc.payload.vacation_config_id);
-        if (conf) lbl += ` - ${conf.name}`;
-    }
-    return lbl;
-};
-
-const getVacationMeasureUnit = (configId) => {
-    if (!configId) return null;
-    const conf = props.vacationConfigs.find(c => c.id === configId);
-    if (!conf) return null;
-    let rules = conf.rules;
-    if (typeof rules === 'string') rules = JSON.parse(rules);
-    return rules?.measure_unit || 'DD';
-};
-
-const calculatedDaysDetail = computed(() => {
-    if (!form.date_from || !form.date_to || form.type !== 'vacation') return null;
-    const kd = calculateCalendarDays(form.date_from, form.date_to);
-    const dd = calculateWorkingDays(form.date_from, form.date_to);
-    
-    if (form.vacation_config_id) {
-        const conf = props.vacationConfigs.find(c => c.id === form.vacation_config_id);
-        if (conf) {
-            let rules = conf.rules;
-            if (typeof rules === 'string') rules = JSON.parse(rules);
-            const unit = rules?.measure_unit || 'DD';
-            if (unit === 'KD') return `Izvēlēts KD: ${kd} KD (t.sk. ${dd} DD)`;
-            return `Izvēlēts DD: ${dd} DD (kopā ${kd} KD)`;
-        }
-    }
-    return null;
-});
-
-// --- Calculation History Modals ---
-const showingVacationLog = ref(false);
-const showingSalaryLog = ref(false);
-
-const openVacationLog = () => { showingVacationLog.value = true; };
-const closeVacationLog = () => { showingVacationLog.value = false; };
-
-const openSalaryLog = () => { showingSalaryLog.value = true; };
-const closeSalaryLog = () => { showingSalaryLog.value = false; };
+function getLawBadgeColor(lawRef) {
+    if (!lawRef) return '#6b7280';
+    if (lawRef.includes('149')) return '#2563eb';
+    if (lawRef.includes('150') || lawRef.includes('151')) return '#7c3aed';
+    if (lawRef.includes('153')) return '#dc2626';
+    if (lawRef.includes('154')) return '#db2777';
+    if (lawRef.includes('155')) return '#0891b2';
+    if (lawRef.includes('156')) return '#ea580c';
+    if (lawRef.includes('157')) return '#059669';
+    if (lawRef.includes('74')) return '#d97706';
+    return '#6b7280';
+}
 </script>
 
 <template>
-    <Head title="Simulator" />
-
+    <Head title="Atvaļinājumu simulators" />
     <AuthenticatedLayout>
         <template #header>
-            <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                Algu un atvaļinājumu simulators
-            </h2>
+            <h2 class="page-title">Atvaļinājumu bilances simulators</h2>
         </template>
 
-        <div class="py-8">
-            <div class="mx-auto max-w-7xl sm:px-6 lg:px-8 space-y-6">
-                
-                <!-- Employee Header Stats -->
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div class="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl shadow-lg p-6 text-white flex flex-col justify-center">
-                        <span class="text-sm uppercase tracking-wider font-semibold opacity-80">Darbinieks</span>
-                        <h3 class="text-2xl font-bold mt-1">{{ employee.vards }} {{ employee.uzvards }}</h3>
-                        <p class="text-indigo-100 mt-2">{{ employee.amats }} • {{ employee.nodala }}</p>
-                        <p v-if="hasHireDocument" class="text-xs mt-1 opacity-70">Sākuma datums: {{ formatDate(employee.sakdatums) }}</p>
-                        <p v-else class="text-xs mt-1 text-yellow-300 opacity-90">⚠️ Nav reģistrēts 'Pieņemšana darbā'</p>
-                    </div>
-
-                    <div class="bg-white rounded-2xl shadow-lg p-6 border-l-4 border-green-500 relative flex flex-col justify-center">
-                        <button @click="openVacationLog" class="absolute top-4 right-4 text-gray-400 hover:text-green-600 transition" title="Skatīt aprēķina vēsturi">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        </button>
-                        <span class="text-sm uppercase tracking-wider font-semibold text-gray-500">Uzkrātais atlikums</span>
-                        <div class="flex items-baseline mt-2">
-                            <h3 class="text-3xl font-black text-gray-900">{{ stats.vacationBalanceDD }}</h3>
-                            <span class="ml-1.5 text-base text-gray-500 font-medium tracking-wide">DD</span>
-                            <span class="text-3xl text-gray-300 font-light mx-3">/</span>
-                            <h3 class="text-3xl font-black text-gray-900">{{ stats.vacationBalanceKD }}</h3>
-                            <span class="ml-1.5 text-base text-gray-500 font-medium tracking-wide">KD</span>
-                        </div>
-                    </div>
-
-                    <div class="bg-white rounded-2xl shadow-lg p-6 border-l-4 border-blue-500 relative flex flex-col justify-center">
-                        <button @click="openSalaryLog" class="absolute top-4 right-4 text-gray-400 hover:text-blue-600 transition" title="Skatīt aprēķina vēsturi">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        </button>
-                        <span class="text-sm uppercase tracking-wider font-semibold text-gray-500">Vidējā izpeļņa</span>
-                        <div class="flex items-baseline mt-2">
-                            <h3 class="text-4xl font-black text-gray-900">{{ stats.averageSalary }}</h3>
-                            <span class="ml-2 text-lg text-gray-500 font-medium">€/dienā</span>
-                        </div>
-                        <p class="text-xs text-gray-400 mt-1">Pēdējo 6 mēnešu aprēķins</p>
+        <div class="simulator-container">
+            <!-- Employee Info -->
+            <section class="employee-card">
+                <div class="employee-info">
+                    <div class="employee-avatar">{{ employee.vards?.[0] }}{{ employee.uzvards?.[0] }}</div>
+                    <div>
+                        <h3>{{ employee.vards }} {{ employee.uzvards }}</h3>
+                        <p>{{ employee.amats }} · {{ employee.nodala }}</p>
+                        <p class="hire-date">Darba sākums: <strong>{{ formatDate(employee.sakdatums) }}</strong></p>
                     </div>
                 </div>
+            </section>
 
-                <!-- Action Panel -->
-                <div class="bg-white rounded-2xl shadow-sm p-6 border border-gray-100">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-lg font-bold text-gray-800">Dokumenta reģistrācija</h3>
-                        <PrimaryButton @click="isFormOpen ? (isFormOpen = false) : openCreate()">
-                            {{ isFormOpen ? 'Aizvērt' : '+ Pievienot' }}
-                        </PrimaryButton>
-                    </div>
-                    
-                    <transition enter-active-class="transition ease-out duration-200" enter-from-class="transform opacity-0 scale-95" enter-to-class="transform opacity-100 scale-100" leave-active-class="transition ease-in duration-75" leave-from-class="transform opacity-100 scale-100" leave-to-class="transform opacity-0 scale-95">
-                        <div v-if="isFormOpen" class="bg-gray-50 p-6 rounded-xl mt-4 border border-gray-200">
-                            <form @submit.prevent="submitForm" class="space-y-4">
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <InputLabel for="type" value="Dokumenta Tips" />
-                                        <select id="type" v-model="form.type" class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm">
-                                            <option v-for="type in documentTypes" :key="type.value" :value="type.value">
-                                                {{ type.label }}
-                                            </option>
-                                        </select>
-                                    </div>
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <!-- BALANCE TABLE (Warehouse View)                            -->
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <section class="balance-section">
+                <h2 class="section-title">
+                    <span class="icon">📊</span> Atvaļinājumu bilances
+                </h2>
 
-                                    <div v-if="form.type === 'vacation'">
-                                        <InputLabel for="vacation_config_id" value="Atvaļinājuma Politika" />
-                                        <select id="vacation_config_id" v-model="form.vacation_config_id" class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm">
-                                            <option v-for="config in vacationConfigs" :key="config.id" :value="config.id">
-                                                {{ config.name }}
-                                            </option>
-                                        </select>
-                                    </div>
+                <table class="balance-table">
+                    <thead>
+                        <tr>
+                            <th class="col-type">Atvaļinājuma veids</th>
+                            <th class="col-law">Likums</th>
+                            <th class="col-num">Uzkrāts (DD)</th>
+                            <th class="col-num">Izmantots (DD)</th>
+                            <th class="col-num col-balance">Atlikums (DD)</th>
+                            <th class="col-num">Atlikums (KD)</th>
+                            <th class="col-actions">Info</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template v-for="row in balanceTable" :key="row.config_id">
+                            <tr class="balance-row" :class="{ 'row-has-balance': row.balance_dd > 0, 'row-expanded': expandedRows[row.config_id] }">
+                                <td class="col-type">
+                                    <button class="expand-btn" @click="toggleRow(row.config_id)">
+                                        {{ expandedRows[row.config_id] ? '▼' : '▶' }}
+                                    </button>
+                                    <span class="type-name">{{ row.config_name }}</span>
+                                </td>
+                                <td class="col-law">
+                                    <span class="law-badge" :style="{ backgroundColor: getLawBadgeColor(row.rules?.law_reference) }">
+                                        {{ row.rules?.law_reference || '—' }}
+                                    </span>
+                                </td>
+                                <td class="col-num accrued">{{ row.accrued > 0 ? row.accrued.toFixed(2) : '—' }}</td>
+                                <td class="col-num used">{{ row.used > 0 ? row.used.toFixed(2) : '—' }}</td>
+                                <td class="col-num col-balance" :class="{ positive: row.balance_dd > 0, negative: row.balance_dd < 0 }">
+                                    <strong>{{ row.balance_dd !== 0 ? row.balance_dd.toFixed(2) : '—' }}</strong>
+                                </td>
+                                <td class="col-num">{{ row.balance_kd !== 0 ? row.balance_kd.toFixed(2) : '—' }}</td>
+                                <td class="col-actions">
+                                    <button class="algo-btn" @click="toggleAlgorithm(row.config_id)" title="Skatīt algoritmu">
+                                        🔬
+                                    </button>
+                                </td>
+                            </tr>
 
-                                    <div v-if="form.type !== 'child_registration'">
-                                        <InputLabel for="date_from" value="Datums No" />
-                                        <TextInput id="date_from" type="date" class="mt-1 block w-full" v-model="form.date_from" required />
+                            <!-- Expanded: Transaction History (Stock Card) -->
+                            <tr v-if="expandedRows[row.config_id]" class="detail-row">
+                                <td :colspan="7">
+                                    <div class="stock-card">
+                                        <h4>📋 Darījumu vēsture ({{ row.config_name }})</h4>
+                                        <p class="stock-description">{{ row.description }}</p>
+                                        <table class="transactions-table" v-if="row.transactions && row.transactions.length > 0">
+                                            <thead>
+                                                <tr>
+                                                    <th>Periods</th>
+                                                    <th>Tips</th>
+                                                    <th>Apraksts</th>
+                                                    <th class="col-num">+Uzkrāts</th>
+                                                    <th class="col-num">-Izmantots</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr v-for="(t, idx) in row.transactions" :key="idx" 
+                                                    :class="{ 'tx-accrual': t.transaction_type === 'accrual', 'tx-usage': t.transaction_type === 'usage' }">
+                                                    <td>{{ formatDate(t.period_from) }} — {{ formatDate(t.period_to) }}</td>
+                                                    <td>
+                                                        <span :class="'tx-badge tx-' + t.transaction_type">
+                                                            {{ t.transaction_type === 'accrual' ? 'Uzkrājums' : 'Izmantots' }}
+                                                        </span>
+                                                    </td>
+                                                    <td class="desc-cell">{{ t.description }}</td>
+                                                    <td class="col-num accrued">{{ t.transaction_type === 'accrual' ? (+t.days_dd).toFixed(2) : '' }}</td>
+                                                    <td class="col-num used">{{ t.transaction_type === 'usage' ? Math.abs(t.days_dd).toFixed(2) : '' }}</td>
+                                                </tr>
+                                            </tbody>
+                                            <tfoot>
+                                                <tr>
+                                                    <td colspan="3"><strong>Kopā</strong></td>
+                                                    <td class="col-num accrued"><strong>{{ row.accrued.toFixed(2) }}</strong></td>
+                                                    <td class="col-num used"><strong>{{ row.used.toFixed(2) }}</strong></td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                        <p v-else class="no-transactions">Nav darījumu.</p>
                                     </div>
-                                    
-                                    <div v-if="form.type !== 'child_registration'">
-                                        <InputLabel for="date_to" value="Datums Līdz" />
-                                        <TextInput id="date_to" type="date" class="mt-1 block w-full" v-model="form.date_to" />
-                                    </div>
+                                </td>
+                            </tr>
 
-                                    <div v-if="form.type !== 'child_registration'">
-                                        <InputLabel for="days" value="Dienas (Skaits)" />
-                                        <div class="relative">
-                                            <TextInput id="days" type="number" step="0.5" class="mt-1 block w-full" v-model="form.days" />
-                                            <div v-if="calculatedDaysDetail" class="absolute -bottom-5 left-0 text-[11px] text-gray-500 font-medium whitespace-nowrap">
-                                                {{ calculatedDaysDetail }}
+                            <!-- Algorithm Panel -->
+                            <tr v-if="showAlgorithm[row.config_id]" class="algo-row">
+                                <td :colspan="7">
+                                    <div class="algorithm-panel">
+                                        <h4>🔬 Aprēķina algoritms</h4>
+                                        <div class="algo-lines">
+                                            <div v-for="(line, idx) in row.algorithm" :key="idx" 
+                                                 class="algo-line" 
+                                                 :class="{ 'algo-bold': line.startsWith('**'), 'algo-warning': line.startsWith('⚠️') }"
+                                                 v-html="formatAlgoLine(line)">
+                                            </div>
+                                        </div>
+                                        <div class="algo-rules">
+                                            <h5>Konfigurācija:</h5>
+                                            <div class="rule-grid">
+                                                <span class="rule-label">Uzkrāšanas metode:</span>
+                                                <span class="rule-value">{{ row.rules?.accrual_method || '—' }}</span>
+                                                <span class="rule-label">Perioda tips:</span>
+                                                <span class="rule-value">{{ row.rules?.period_type || '—' }}</span>
+                                                <span class="rule-label">Nobīda darba gadu:</span>
+                                                <span class="rule-value">{{ row.rules?.shifts_working_year ? 'Jā (>' + (row.rules?.shifts_working_year_threshold_weeks || 4) + ' ned.)' : 'Nē' }}</span>
+                                                <span class="rule-label">Mērvienība:</span>
+                                                <span class="rule-value">{{ row.rules?.measure_unit || 'DD' }}</span>
                                             </div>
                                         </div>
                                     </div>
-                                    
-                                    <div v-if="form.type === 'child_registration'">
-                                        <InputLabel for="child_dob" value="Bērna dzimšanas datums" />
-                                        <TextInput id="child_dob" type="date" class="mt-1 block w-full" v-model="form.payload.child_dob" required />
-                                    </div>
-                                    
-                                    <div v-if="form.type === 'child_registration'" class="flex items-center mt-6">
-                                        <input id="is_disabled" type="checkbox" v-model="form.payload.is_disabled" class="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 focus:ring-2">
-                                        <label for="is_disabled" class="ml-2 text-sm font-medium text-gray-900">Bērns ar invaliditāti</label>
-                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </section>
 
-                                    <div v-if="form.type === 'salary_calculation'">
-                                        <InputLabel for="amount" value="Summa (€) - Bruto alga" />
-                                        <TextInput id="amount" type="number" step="0.01" class="mt-1 block w-full" v-model="form.amount" />
-                                    </div>
-                                </div>
-                                <div class="flex items-center justify-end mt-4">
-                                    <PrimaryButton :class="{ 'opacity-25': form.processing }" :disabled="form.processing">
-                                        Saglabāt
-                                    </PrimaryButton>
-                                </div>
-                            </form>
-                        </div>
-                    </transition>
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <!-- DOCUMENTS LIST                                            -->
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <section class="documents-section">
+                <div class="section-header">
+                    <h2 class="section-title"><span class="icon">📄</span> Dokumenti</h2>
+                    <button class="btn-add" @click="openNewDoc">+ Pievienot dokumentu</button>
                 </div>
 
-                <!-- Document Stream -->
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div class="px-6 py-4 border-b border-gray-100 bg-gray-50">
-                        <h3 class="font-bold text-gray-800">Vēsture (Dokumentu plūsma)</h3>
-                    </div>
-                    <ul class="divide-y divide-gray-100">
-                        <li v-for="doc in documents" :key="doc.id" class="p-6 hover:bg-gray-50 transition duration-150 flex items-start space-x-4">
-                            <!-- Icon -->
-                            <div class="flex-shrink-0">
-                                <span class="inline-flex items-center justify-center h-10 w-10 rounded-full" 
-                                      :class="{
-                                          'bg-blue-100 text-blue-600': doc.type === 'salary_calculation',
-                                          'bg-purple-100 text-purple-600': doc.type === 'vacation',
-                                          'bg-green-100 text-green-600': doc.type === 'child_registration',
-                                          'bg-gray-100 text-gray-600': !['salary_calculation', 'vacation', 'child_registration'].includes(doc.type)
-                                      }">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                                    </svg>
-                                </span>
+                <table class="doc-table">
+                    <thead>
+                        <tr>
+                            <th>Tips</th>
+                            <th>Veids</th>
+                            <th>No</th>
+                            <th>Līdz</th>
+                            <th>Dienas</th>
+                            <th>Darbības</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="doc in nonSalaryDocs" :key="doc.id">
+                            <td><span class="doc-type-badge">{{ getDocTypeLabel(doc.type) }}</span></td>
+                            <td>{{ getConfigName(doc) }}</td>
+                            <td>{{ formatDate(doc.date_from) }}</td>
+                            <td>{{ formatDate(doc.date_to) }}</td>
+                            <td>{{ doc.days || '—' }}</td>
+                            <td>
+                                <button class="btn-sm btn-edit" @click="editDoc(doc)">✏️</button>
+                                <button class="btn-sm btn-del" @click="deleteDoc(doc)">🗑️</button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <!-- DOCUMENT FORM MODAL                                       -->
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <div v-if="showDocForm" class="modal-overlay" @click.self="showDocForm = false">
+                <div class="modal-content">
+                    <h3>{{ editingDoc ? 'Rediģēt dokumentu' : 'Jauns dokuments' }}</h3>
+                    <form @submit.prevent="saveDoc">
+                        <div class="form-group">
+                            <label>Dokumenta tips</label>
+                            <select v-model="form.type">
+                                <option v-for="dt in docTypes" :key="dt.value" :value="dt.value">{{ dt.label }}</option>
+                            </select>
+                        </div>
+
+                        <div v-if="isVacationType" class="form-group">
+                            <label>Atvaļinājuma veids</label>
+                            <select v-model="form.vacation_config_id">
+                                <option :value="null">— Izvēlieties —</option>
+                                <option v-for="vc in vacationConfigs" :key="vc.id" :value="vc.id">{{ vc.name }}</option>
+                            </select>
+                        </div>
+
+                        <div v-if="form.type !== 'child_registration'" class="form-row">
+                            <div class="form-group">
+                                <label>Datums no</label>
+                                <input type="date" v-model="form.date_from" />
                             </div>
-                            <!-- Content -->
-                            <div class="flex-1 min-w-0">
-                                <p class="text-sm font-semibold text-gray-900 pb-1">
-                                    {{ getTypeName(doc) }}
-                                </p>
-                                <div class="flex text-sm text-gray-500 space-x-4">
-                                    <span v-if="doc.type !== 'child_registration' && doc.date_from">No: <strong class="text-gray-700">{{ formatDate(doc.date_from) }}</strong></span>
-                                    <span v-if="doc.type !== 'child_registration' && doc.date_to">Līdz: <strong class="text-gray-700">{{ formatDate(doc.date_to) }}</strong></span>
-                                    
-                                    <span v-if="doc.type === 'child_registration'">Dzimšanas datums: <strong class="text-gray-700">{{ formatDate((typeof doc.payload === 'string' ? JSON.parse(doc.payload) : doc.payload)?.child_dob) }}</strong></span>
-                                    <span v-if="doc.type === 'child_registration' && (typeof doc.payload === 'string' ? JSON.parse(doc.payload) : doc.payload)?.is_disabled" class="text-red-600 font-semibold text-xs ml-2 uppercase">(Invaliditāte)</span>
-                                    
-                                    <span v-if="doc.type !== 'child_registration' && doc.days">
-                                        Dienas: <strong class="text-gray-700">{{ doc.days }}</strong>
-                                        <span v-if="doc.type === 'vacation' && getVacationMeasureUnit(doc.payload?.vacation_config_id)" class="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider" :class="getVacationMeasureUnit(doc.payload?.vacation_config_id) === 'KD' ? 'bg-orange-100 text-orange-700' : 'bg-teal-100 text-teal-700'">
-                                            {{ getVacationMeasureUnit(doc.payload?.vacation_config_id) }}
-                                        </span>
-                                        <span v-if="doc.type === 'vacation' && doc.date_to" class="ml-1.5 text-[11px] text-gray-500 font-medium">
-                                            ({{ calculateWorkingDays(doc.date_from, doc.date_to) }} DD / {{ calculateCalendarDays(doc.date_from, doc.date_to) }} KD)
-                                        </span>
-                                    </span>
-                                    <span v-if="doc.amount" class="text-indigo-600 font-semibold">{{ doc.amount }} €</span>
-                                </div>
+                            <div class="form-group">
+                                <label>Datums līdz</label>
+                                <input type="date" v-model="form.date_to" />
                             </div>
-                            <!-- Date badge & Actions -->
-                            <div class="flex flex-col items-end space-y-2">
-                                <span class="text-xs text-gray-400">
-                                    Reģistrēts: {{ formatDate(doc.created_at) }}
-                                </span>
-                                <div class="flex space-x-2">
-                                    <button @click="openEdit(doc)" class="text-indigo-600 hover:text-indigo-900 text-sm font-medium">Rediģēt</button>
-                                    <button @click="confirmDeletion(doc.id)" class="text-red-600 hover:text-red-900 text-sm font-medium">Dzēst</button>
-                                </div>
-                            </div>
-                        </li>
-                        <li v-if="documents.length === 0" class="p-6 text-center text-gray-500">
-                            Nav reģistrētu dokumentu.
-                        </li>
-                    </ul>
+                        </div>
+
+                        <div v-if="form.type === 'child_registration'" class="form-group">
+                            <label>Bērna dzimšanas datums</label>
+                            <input type="date" v-model="form.payload.child_dob" />
+                        </div>
+                        <div v-if="form.type === 'child_registration'" class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" v-model="form.payload.is_disabled" /> Bērns ar invaliditāti
+                            </label>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="button" class="btn-cancel" @click="showDocForm = false">Atcelt</button>
+                            <button type="submit" class="btn-save" :disabled="form.processing">Saglabāt</button>
+                        </div>
+                    </form>
                 </div>
-
-                <Modal :show="confirmingDocumentDeletion" @close="closeModal">
-                    <div class="p-6">
-                        <h2 class="text-lg font-medium text-gray-900">
-                            Vai tiešām vēlaties dzēst šo dokumentu?
-                        </h2>
-
-                        <p class="mt-1 text-sm text-gray-600">
-                            Šī darbība ir neatgriezeniska. Tieks pārskaitīti visi saistītie atvaļinājumu atlikumi.
-                        </p>
-
-                        <div class="mt-6 flex justify-end">
-                            <SecondaryButton @click="closeModal"> Atcelt </SecondaryButton>
-
-                            <PrimaryButton
-                                class="ms-3 bg-red-600 hover:bg-red-500 focus:bg-red-700"
-                                @click="deleteDoc"
-                            >
-                                Dzēst dokumentu
-                            </PrimaryButton>
-                        </div>
-                    </div>
-                </Modal>
-
-                <!-- Vacation Calculation Log Modal -->
-                <Modal :show="showingVacationLog" @close="closeVacationLog" maxWidth="2xl">
-                    <div class="p-6">
-                        <div class="flex justify-between items-center border-b border-gray-100 pb-4 mb-4">
-                            <h2 class="text-xl font-bold text-gray-800">
-                                Atvaļinājuma bilances aprēķins
-                            </h2>
-                            <button @click="closeVacationLog" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
-                        </div>
-
-                        <div class="text-[14px] text-gray-700 space-y-2 max-h-96 overflow-y-auto w-full leading-relaxed pr-2">
-                            <div v-for="(log, idx) in stats.vacationBalanceLog" :key="idx" class="border-b border-gray-50 pb-2 last:border-0 last:pb-0">
-                                {{ log }}
-                            </div>
-                            <div v-if="stats.vacationBalanceLog.length === 0" class="text-gray-500 italic">
-                                Nav datu.
-                            </div>
-                        </div>
-
-                        <div class="mt-6 flex justify-end">
-                            <PrimaryButton @click="closeVacationLog"> Aizvērt </PrimaryButton>
-                        </div>
-                    </div>
-                </Modal>
-
-                <!-- Salary Calculation Log Modal -->
-                <Modal :show="showingSalaryLog" @close="closeSalaryLog" maxWidth="2xl">
-                    <div class="p-6">
-                        <div class="flex justify-between items-center border-b border-gray-100 pb-4 mb-4">
-                            <h2 class="text-xl font-bold text-gray-800">
-                                Vidējās dienas izpeļņas aprēķins
-                            </h2>
-                            <button @click="closeSalaryLog" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
-                        </div>
-
-                        <div class="text-[14px] text-gray-700 space-y-2 max-h-96 overflow-y-auto w-full leading-relaxed pr-2">
-                            <div v-for="(log, idx) in stats.averageSalaryLog" :key="idx" class="border-b border-gray-50 pb-2 last:border-0 last:pb-0">
-                                {{ log }}
-                            </div>
-                            <div v-if="stats.averageSalaryLog.length === 0" class="text-gray-500 italic">
-                                Nav datu.
-                            </div>
-                        </div>
-
-                        <div class="mt-6 flex justify-end">
-                            <PrimaryButton @click="closeSalaryLog"> Aizvērt </PrimaryButton>
-                        </div>
-                    </div>
-                </Modal>
             </div>
         </div>
     </AuthenticatedLayout>
 </template>
+
+<script>
+export default {
+    methods: {
+        formatAlgoLine(line) {
+            // Bold markdown
+            let result = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            return result;
+        }
+    }
+};
+</script>
+
+<style scoped>
+/* ═══════════════════════════════════════════════════════ */
+/* DESIGN SYSTEM                                         */
+/* ═══════════════════════════════════════════════════════ */
+.simulator-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+    font-family: 'Inter', system-ui, sans-serif;
+}
+
+.page-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.section-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.section-title .icon { font-size: 1.3rem; }
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+/* ─── Employee Card ─── */
+.employee-card {
+    background: linear-gradient(135deg, #1e40af, #3b82f6);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+    color: white;
+}
+.employee-info {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+.employee-avatar {
+    width: 56px; height: 56px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1.2rem;
+}
+.employee-info h3 { font-size: 1.3rem; margin: 0; }
+.employee-info p { margin: 2px 0; opacity: 0.9; font-size: 0.9rem; }
+.hire-date { opacity: 0.8; }
+
+/* ─── Balance Table ─── */
+.balance-section {
+    background: white;
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.balance-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+.balance-table th {
+    background: #f8fafc;
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    color: #475569;
+    border-bottom: 2px solid #e2e8f0;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.balance-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.balance-row { cursor: pointer; transition: background 0.15s; }
+.balance-row:hover { background: #f8fafc; }
+.row-has-balance { background: #f0f9ff; }
+.row-expanded { background: #eff6ff; }
+
+.col-num { text-align: right; font-variant-numeric: tabular-nums; }
+.col-balance { font-size: 1em; }
+.col-actions { text-align: center; width: 60px; }
+
+.positive { color: #059669; }
+.negative { color: #dc2626; }
+.accrued { color: #2563eb; }
+.used { color: #dc2626; }
+
+.expand-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: #94a3b8;
+    padding: 0 8px 0 0;
+}
+
+.type-name { font-weight: 500; }
+
+.law-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.algo-btn {
+    background: none;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    padding: 4px 8px;
+    font-size: 1rem;
+    transition: all 0.15s;
+}
+.algo-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+
+/* ─── Detail Row: Stock Card ─── */
+.detail-row td { padding: 0; }
+.stock-card {
+    background: #f8fafc;
+    padding: 20px 24px;
+    border-left: 4px solid #3b82f6;
+}
+.stock-card h4 { margin: 0 0 8px; font-size: 1rem; color: #1e293b; }
+.stock-description { font-size: 0.85rem; color: #64748b; margin-bottom: 12px; }
+
+.transactions-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.transactions-table th {
+    background: #f1f5f9;
+    padding: 8px 12px;
+    text-align: left;
+    font-weight: 600;
+    color: #475569;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+}
+.transactions-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
+.transactions-table tfoot td { border-top: 2px solid #e2e8f0; background: #f8fafc; }
+
+.tx-accrual { background: #f0fdf4; }
+.tx-usage { background: #fef2f2; }
+.tx-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.tx-accrual .tx-badge, .tx-badge.tx-accrual { background: #dcfce7; color: #166534; }
+.tx-usage .tx-badge, .tx-badge.tx-usage { background: #fecaca; color: #991b1b; }
+
+.desc-cell { max-width: 400px; font-size: 0.83rem; color: #475569; }
+.no-transactions { color: #94a3b8; font-style: italic; }
+
+/* ─── Algorithm Panel ─── */
+.algo-row td { padding: 0; }
+.algorithm-panel {
+    background: #fffbeb;
+    padding: 20px 24px;
+    border-left: 4px solid #f59e0b;
+}
+.algorithm-panel h4 { margin: 0 0 12px; font-size: 1rem; color: #92400e; }
+
+.algo-lines { margin-bottom: 16px; }
+.algo-line {
+    padding: 4px 0;
+    font-size: 0.88rem;
+    color: #44403c;
+    line-height: 1.5;
+}
+.algo-bold { font-weight: 700; color: #1c1917; }
+.algo-warning { color: #c2410c; font-weight: 500; }
+
+.algo-rules { border-top: 1px solid #fde68a; padding-top: 12px; }
+.algo-rules h5 { margin: 0 0 8px; font-size: 0.85rem; color: #92400e; }
+.rule-grid {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 4px 16px;
+    font-size: 0.83rem;
+}
+.rule-label { color: #78716c; font-weight: 500; }
+.rule-value { color: #1c1917; }
+
+/* ─── Documents ─── */
+.documents-section {
+    background: white;
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.doc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+}
+.doc-table th {
+    background: #f8fafc;
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    color: #475569;
+    border-bottom: 2px solid #e2e8f0;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+}
+.doc-table td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; }
+
+.doc-type-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    background: #e0e7ff;
+    color: #3730a3;
+    border-radius: 10px;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+.btn-add {
+    background: #2563eb;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.btn-add:hover { background: #1d4ed8; }
+
+.btn-sm {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    font-size: 1rem;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+}
+.btn-sm:hover { opacity: 1; }
+
+/* ─── Modal ─── */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+}
+.modal-content {
+    background: white;
+    border-radius: 16px;
+    padding: 32px;
+    width: 90%;
+    max-width: 520px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+}
+.modal-content h3 { margin: 0 0 20px; font-size: 1.2rem; }
+
+.form-group {
+    margin-bottom: 16px;
+}
+.form-group label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #374151;
+    margin-bottom: 4px;
+}
+.form-group input, .form-group select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    box-sizing: border-box;
+}
+.form-group input:focus, .form-group select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+}
+
+.form-row { display: flex; gap: 16px; }
+.form-row .form-group { flex: 1; }
+
+.checkbox-label {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+.checkbox-label input[type="checkbox"] { width: auto; }
+
+.form-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 24px;
+}
+.btn-cancel {
+    background: #f1f5f9;
+    color: #475569;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-weight: 500;
+    cursor: pointer;
+}
+.btn-save {
+    background: #2563eb;
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.btn-save:hover { background: #1d4ed8; }
+.btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
+</style>

@@ -10,12 +10,8 @@ class DatabaseSeeder extends Seeder
 {
     use WithoutModelEvents;
 
-    /**
-     * Seed the application's database.
-     */
     public function run(): void
     {
-        // Only seed if no data exists yet (prevents re-seeding on every deploy)
         if (User::count() > 0) {
             return;
         }
@@ -30,127 +26,192 @@ class DatabaseSeeder extends Seeder
         $employee = \App\Models\Employee::create([
             'vards' => 'Jānis',
             'uzvards' => 'Bērziņš',
-            'sakdatums' => '2020-01-01',
-            'amats' => 'Būvdarbu vadītājs',
-            'nodala' => 'Būvniecības nodaļa',
-            'alga' => 1500.00,
+            'sakdatums' => '2025-01-01',
+            'amats' => 'Projektu vadītājs',
+            'nodala' => 'Administrācija',
         ]);
 
         \App\Models\VacationConfig::insert([
             [
                 'tip' => 1,
                 'name' => 'Ikgadējais atvaļinājums',
-                'description' => 'Saskaņā ar Darba likuma 149. pantu, ikvienam darbiniekam ir tiesības uz ikgadējo apmaksāto atvaļinājumu. Atvaļinājuma laiks ir četras kalendāra nedēļas (20 darba dienas), neskaitot svētku dienas. Atvaļinājumu apmaksā, aprēķinot vidējo izpeļņu par pēdējiem 6 mēnešiem.',
+                'description' => 'DL 149. pants. Ikvienam darbiniekam — 4 kalendāra nedēļas (20 DD). Uzkrāj katru mēnesi no darba sākuma datuma. Formula: norma÷12 × nostrādātie mēneši (ATVREZ_YMD algoritms).',
                 'is_accruable' => true,
                 'norm_days' => 20,
-                'rules' => json_encode(['measure_unit' => 'DD', 'financial_formula' => 'average_salary', 'shifts_working_year' => false]),
+                'rules' => json_encode([
+                    'measure_unit' => 'DD',
+                    'accrual_method' => 'monthly',
+                    'accrual_start' => 'from_hire',
+                    'period_type' => 'working_year',
+                    'shifts_working_year' => false,
+                    'law_reference' => 'DL 149',
+                ]),
                 'created_at' => now(), 'updated_at' => now(),
             ],
             [
                 'tip' => 2,
                 'name' => 'Bērna kopšanas atvaļinājums',
-                'description' => 'Darba likuma 156. pants. Piešķir sakarā ar bērna dzimšanu vai adopciju uz laiku līdz pusotram gadam. Darba devējs šo atvaļinājumu neapmaksā (apmaksā VSAA). Ja atvaļinājums pārsniedz 4 nedēļas, tas pagarinās darba gadu (nobīda bāzes datumu) ikgadējā atvaļinājuma aprēķinam (DL 152. panta otrā daļa).',
+                'description' => 'DL 156. pants. Līdz 1.5 gadam sakarā ar bērna dzimšanu. VSAA apmaksā. Periods >4 nedēļas nobīda darba gadu.',
                 'is_accruable' => false,
                 'norm_days' => 0,
-                'rules' => json_encode(['measure_unit' => 'DD', 'financial_formula' => 'unpaid', 'shifts_working_year' => true]),
+                'rules' => json_encode([
+                    'measure_unit' => 'DD',
+                    'accrual_method' => 'per_event',
+                    'accrual_start' => 'from_document',
+                    'period_type' => 'working_year',
+                    'shifts_working_year' => true,
+                    'shifts_working_year_threshold_weeks' => 4,
+                    'law_reference' => 'DL 156',
+                ]),
                 'created_at' => now(), 'updated_at' => now(),
             ],
             [
                 'tip' => 3,
                 'name' => 'Mācību atvaļinājums',
-                'description' => 'Darba likuma 157. pants. Darbiniekam var piešķirt mācību atvaļinājumu līdz 20 darba dienām gadā. Ja mācības ir saistītas ar darbu, jāsaglabā darba alga. Izlaiduma/diplomdarba aizstāvēšanai piešķir 20 apmaksātas dienas.',
+                'description' => 'DL 157. pants. Līdz 20 DD gadā. Ja mācības saistītas ar darbu — saglabā algu. Izlaidumam — 20 apmaksātas DD.',
                 'is_accruable' => false,
-                'norm_days' => 0,
-                'rules' => json_encode(['measure_unit' => 'DD', 'financial_formula' => 'base_salary', 'shifts_working_year' => false]),
+                'norm_days' => 20,
+                'rules' => json_encode([
+                    'measure_unit' => 'DD',
+                    'accrual_method' => 'yearly',
+                    'accrual_start' => 'from_hire',
+                    'period_type' => 'calendar_year',
+                    'shifts_working_year' => false,
+                    'max_per_year_dd' => 20,
+                    'law_reference' => 'DL 157',
+                ]),
                 'created_at' => now(), 'updated_at' => now(),
             ],
             [
                 'tip' => 4,
                 'name' => 'Bezalgas atvaļinājums',
-                'description' => 'Darba likuma 153. pants. Pēc darbinieka pieprasījuma var piešķirt atvaļinājumu bez darba un vidējās izpeļņas saglabāšanas. Laiks, kas pārsniedz 4 nedēļas viena darba gada laikā, neietilpst laikā, kas dod tiesības uz ikgadējo atvaļinājumu.',
+                'description' => 'DL 153. pants. Pēc darbinieka pieprasījuma. Pirmās 4 nedēļas darba gadā nenobīda darba gadu, pārējais nobīda.',
                 'is_accruable' => false,
                 'norm_days' => 0,
-                'rules' => json_encode(['measure_unit' => 'DD', 'financial_formula' => 'unpaid', 'shifts_working_year' => true]),
+                'rules' => json_encode([
+                    'measure_unit' => 'DD',
+                    'accrual_method' => 'per_request',
+                    'accrual_start' => 'immediate',
+                    'period_type' => 'working_year',
+                    'shifts_working_year' => true,
+                    'shifts_working_year_threshold_weeks' => 4,
+                    'law_reference' => 'DL 153',
+                ]),
                 'created_at' => now(), 'updated_at' => now(),
             ],
             [
                 'tip' => 5,
                 'name' => 'Papildatvaļinājums par bērniem',
-                'description' => 'Darba likuma 150. pants un 151. pants. Darbiniekiem ar 1-2 bērniem (līdz 14 g.) – 1 apmaksāta diena. Ar 3+ bērniem vai bērnu invalīdu (līdz 18 g.) – 3 apmaksātas dienas. Apmaksā pēc vidējās izpeļņas.',
+                'description' => 'DL 150.-151. pants. 1-2 bērni (<14g.) → 1 DD/gadā. 3+ bērni vai invalīds (<18g.) → 3 DD/gadā. Piešķir par kalendāro gadu.',
                 'is_accruable' => false,
                 'norm_days' => 0,
-                'rules' => json_encode(['measure_unit' => 'DD', 'financial_formula' => 'average_salary', 'shifts_working_year' => false]),
+                'rules' => json_encode([
+                    'measure_unit' => 'DD',
+                    'accrual_method' => 'yearly',
+                    'accrual_start' => 'from_hire',
+                    'period_type' => 'calendar_year',
+                    'shifts_working_year' => false,
+                    'law_reference' => 'DL 150-151',
+                ]),
                 'created_at' => now(), 'updated_at' => now(),
             ],
             [
                 'tip' => 6,
                 'name' => 'Grūtniecības un dzemdību atvaļinājums',
-                'description' => 'Darba likuma 154. pants. Grūtniecības (56 vai 70 dienas) un dzemdību (56 vai 70 dienas) atvaļinājums. Tiek izsniegta B lapa, kuru apmaksā valsts (VSAA). Šis laiks (pirmsdzemdību/pēcdzemdību) dod tiesības uz ikgadējo atvaļinājumu, tāpēc bāzes gadu nenobīda.',
+                'description' => 'DL 154. pants. 56/70 + 56/70 KD. VSAA apmaksā. NENOBĪDA darba gadu.',
                 'is_accruable' => false,
                 'norm_days' => 0,
-                'rules' => json_encode(['measure_unit' => 'DD', 'financial_formula' => 'unpaid', 'shifts_working_year' => false]),
+                'rules' => json_encode([
+                    'measure_unit' => 'KD',
+                    'accrual_method' => 'per_event',
+                    'accrual_start' => 'from_document',
+                    'period_type' => 'working_year',
+                    'shifts_working_year' => false,
+                    'law_reference' => 'DL 154',
+                ]),
                 'created_at' => now(), 'updated_at' => now(),
             ],
             [
                 'tip' => 7,
                 'name' => 'Paternitātes atvaļinājums',
-                'description' => 'Darba likuma 155. pants. Bērna tēvam ir tiesības uz 10 darba dienu ilgu atvaļinājumu. Atvaļinājumu apmaksā VSAA (nevis darba devējs).',
+                'description' => 'DL 155. pants. Bērna tēvam — 10 DD. Jāizmanto 2 mēnešu laikā no dzimšanas. VSAA apmaksā.',
                 'is_accruable' => false,
-                'norm_days' => 0,
-                'rules' => json_encode(['measure_unit' => 'DD', 'financial_formula' => 'unpaid', 'shifts_working_year' => false]),
+                'norm_days' => 10,
+                'rules' => json_encode([
+                    'measure_unit' => 'DD',
+                    'accrual_method' => 'per_event',
+                    'accrual_start' => 'from_document',
+                    'period_type' => 'working_year',
+                    'shifts_working_year' => false,
+                    'usage_deadline_months' => 2,
+                    'law_reference' => 'DL 155',
+                ]),
                 'created_at' => now(), 'updated_at' => now(),
             ],
-
             [
                 'tip' => 10,
                 'name' => 'Asins donora diena',
-                'description' => 'Darba likuma 74. pants (6. daļa). Pēc asins ziedošanas darbiniekam piešķir apmaksātu atpūtas dienu nākamo reizi. Darba devējam jāapmaksā vidējā izpeļņa par šo brīvdienu.',
+                'description' => 'DL 74. panta 6. daļa. 1 apmaksāta atpūtas diena pēc asins ziedošanas. Uz donora izziņas pamata.',
                 'is_accruable' => false,
-                'norm_days' => 0,
-                'rules' => json_encode(['measure_unit' => 'DD', 'financial_formula' => 'average_salary', 'shifts_working_year' => false]),
+                'norm_days' => 1,
+                'rules' => json_encode([
+                    'measure_unit' => 'DD',
+                    'accrual_method' => 'per_event',
+                    'accrual_start' => 'from_document',
+                    'period_type' => 'calendar_year',
+                    'shifts_working_year' => false,
+                    'usage_deadline_days' => 30,
+                    'requires_document' => true,
+                    'law_reference' => 'DL 74 §6',
+                ]),
                 'created_at' => now(), 'updated_at' => now(),
             ],
             [
                 'tip' => 11,
                 'name' => 'Radošais atvaļinājums',
-                'description' => 'Saskaņā ar DL vai kolektīvo līgumu pētniekiem/zinātniekiem, autoriem grāmatu un disku izdošanai u.c. Parasti šādu periodu var neapmaksāt vai apmaksāt atbilstoši vienošanās noteikumiem.',
+                'description' => 'DL vai kolektīvais līgums. Pētniekiem, zinātniekiem, autoriem. Pēc vienošanās noteikumiem.',
                 'is_accruable' => false,
                 'norm_days' => 0,
-                'rules' => json_encode(['measure_unit' => 'DD', 'financial_formula' => 'unpaid', 'shifts_working_year' => false]),
+                'rules' => json_encode([
+                    'measure_unit' => 'DD',
+                    'accrual_method' => 'per_request',
+                    'accrual_start' => 'immediate',
+                    'period_type' => 'calendar_year',
+                    'shifts_working_year' => false,
+                    'law_reference' => 'DL / Kolektīvais līgums',
+                ]),
                 'created_at' => now(), 'updated_at' => now(),
             ],
         ]);
 
+        // Hire document
         \App\Models\Document::create([
             'employee_id' => $employee->id,
             'type' => 'hire',
-            'date_from' => '2020-01-01',
+            'date_from' => '2025-01-01',
             'date_to' => null,
             'days' => null,
-            'amount' => null,
             'payload' => json_encode([]),
         ]);
 
+        // Child registration
         \App\Models\Document::create([
             'employee_id' => $employee->id,
             'type' => 'child_registration',
             'date_from' => '2020-05-10',
             'date_to' => null,
             'days' => null,
-            'amount' => null,
             'payload' => json_encode(['child_dob' => '2020-05-10', 'is_disabled' => false]),
         ]);
 
-        for ($i = 1; $i <= 6; $i++) {
-            \App\Models\Document::create([
-                'employee_id' => $employee->id,
-                'type' => 'salary_calculation',
-                'date_from' => now()->startOfMonth()->subMonths($i)->toDateString(),
-                'date_to' => now()->endOfMonth()->subMonths($i)->toDateString(),
-                'days' => 21,
-                'amount' => 1500.00,
-                'payload' => json_encode([]),
-            ]);
-        }
+        // Example vacation usage (ikgadējais)
+        \App\Models\Document::create([
+            'employee_id' => $employee->id,
+            'type' => 'vacation',
+            'date_from' => '2025-11-03',
+            'date_to' => '2025-11-05',
+            'days' => 3,
+            'payload' => json_encode(['vacation_config_id' => 1]),
+        ]);
     }
 }

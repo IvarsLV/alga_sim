@@ -12,7 +12,6 @@ class Document extends Model
         'date_from',
         'date_to',
         'days',
-        'amount',
         'payload',
     ];
 
@@ -22,7 +21,6 @@ class Document extends Model
             'date_from' => 'date',
             'date_to' => 'date',
             'days' => 'decimal:4',
-            'amount' => 'decimal:2',
             'payload' => 'array',
         ];
     }
@@ -30,5 +28,10 @@ class Document extends Model
     public function employee()
     {
         return $this->belongsTo(Employee::class);
+    }
+
+    public function leaveTransactions()
+    {
+        return $this->hasMany(LeaveTransaction::class);
     }
 }
