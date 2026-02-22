@@ -19,9 +19,6 @@ class LeaveAccrualService
 
     /**
      * Recalculate all leave balances for an employee (idempotent).
-     * Deletes existing transactions and rebuilds from scratch.
-     *
-     * @return array [config_id => ['config' => ..., 'accrued' => ..., 'used' => ..., 'balance' => ..., 'transactions' => [...], 'algorithm' => [...] ]]
      */
     public function calculateAll(Employee $employee): array
     {
@@ -32,7 +29,6 @@ class LeaveAccrualService
             return [];
         }
 
-        // Clear existing transactions for recalculation
         LeaveTransaction::where('employee_id', $employee->id)->delete();
 
         $configs = VacationConfig::all();
@@ -56,46 +52,61 @@ class LeaveAccrualService
         $transactions = [];
         $algorithm = [];
 
+        // Payment status label
+        $paymentStatus = $rules['payment_status'] ?? 'apmaksāts';
+        $paymentLabels = [
+            'apmaksāts' => '💰 Apmaksāts (darba devējs)',
+            'neapmaksāts' => '🚫 Neapmaksāts',
+            'VSAA' => '🏛️ Apmaksā VSAA',
+        ];
+        $algorithm[] = ($paymentLabels[$paymentStatus] ?? $paymentStatus);
+
         switch ($tip) {
-            case 1: // Ikgadējais atvaļinājums
-                [$transactions, $algorithm] = $this->accrueIkgadejais($employee, $config, $baseDate, $referenceDate, $rules);
+            case 1:
+                [$transactions, $algo] = $this->accrueIkgadejais($employee, $config, $baseDate, $referenceDate, $rules);
                 break;
-            case 2: // Bērna kopšanas atvaļinājums
-                [$transactions, $algorithm] = $this->accrueBernaKopsana($employee, $config, $baseDate, $referenceDate, $rules);
+            case 2:
+                [$transactions, $algo] = $this->accrueBernaKopsana($employee, $config, $baseDate, $referenceDate, $rules);
                 break;
-            case 3: // Mācību atvaļinājums
-                [$transactions, $algorithm] = $this->accrueMacibu($employee, $config, $baseDate, $referenceDate, $rules);
+            case 3:
+                [$transactions, $algo] = $this->accrueMacibu($employee, $config, $baseDate, $referenceDate, $rules);
                 break;
-            case 4: // Bezalgas atvaļinājums
-                [$transactions, $algorithm] = $this->accrueBezalgas($employee, $config, $baseDate, $referenceDate, $rules);
+            case 4:
+                [$transactions, $algo] = $this->accrueBezalgas($employee, $config, $baseDate, $referenceDate, $rules);
                 break;
-            case 5: // Papildatvaļinājums par bērniem
-                [$transactions, $algorithm] = $this->accruePapildBerniem($employee, $config, $baseDate, $referenceDate, $rules);
+            case 5:
+                [$transactions, $algo] = $this->accruePapildBerniem($employee, $config, $baseDate, $referenceDate, $rules);
                 break;
-            case 6: // Grūtniecības un dzemdību atvaļinājums
-                [$transactions, $algorithm] = $this->accrueGrutnieciba($employee, $config, $baseDate, $referenceDate, $rules);
+            case 6:
+                [$transactions, $algo] = $this->accrueGrutnieciba($employee, $config, $baseDate, $referenceDate, $rules);
                 break;
-            case 7: // Paternitātes atvaļinājums
-                [$transactions, $algorithm] = $this->accruePaternitates($employee, $config, $baseDate, $referenceDate, $rules);
+            case 7:
+                [$transactions, $algo] = $this->accruePaternitates($employee, $config, $baseDate, $referenceDate, $rules);
                 break;
-            case 10: // Asins donora diena
-                [$transactions, $algorithm] = $this->accrueDonoraDiena($employee, $config, $baseDate, $referenceDate, $rules);
+            case 10:
+                [$transactions, $algo] = $this->accrueDonoraDiena($employee, $config, $baseDate, $referenceDate, $rules);
                 break;
-            case 11: // Radošais atvaļinājums
-                [$transactions, $algorithm] = $this->accrueRadosais($employee, $config, $baseDate, $referenceDate, $rules);
+            case 11:
+                [$transactions, $algo] = $this->accrueRadosais($employee, $config, $baseDate, $referenceDate, $rules);
                 break;
             default:
-                $algorithm[] = "Nav definēts algoritms šim tipam (tip={$tip}).";
+                $algo = ["Nav definēts algoritms šim tipam (tip={$tip})."];
         }
+        $algorithm = array_merge($algorithm, $algo);
 
         // Process usage (consumption) for this type
         $usageTransactions = $this->processUsage($employee, $config, $baseDate, $referenceDate);
         $transactions = array_merge($transactions, $usageTransactions);
 
-        // Calculate totals
+        // Apply expiration BEFORE totals
+        $expirationTransactions = $this->applyExpiration($transactions, $config, $rules, $referenceDate, $algorithm);
+        $transactions = array_merge($transactions, $expirationTransactions);
+
+        // Calculate totals (accrual - expired - used)
         $totalAccrued = collect($transactions)->where('transaction_type', 'accrual')->sum('days_dd');
+        $totalExpired = abs(collect($transactions)->where('transaction_type', 'expiration')->sum('days_dd'));
         $totalUsed = abs(collect($transactions)->where('transaction_type', 'usage')->sum('days_dd'));
-        $balance = round($totalAccrued - $totalUsed, 2);
+        $balance = round($totalAccrued - $totalExpired - $totalUsed, 2);
 
         // Save to DB
         foreach ($transactions as $t) {
@@ -105,15 +116,205 @@ class LeaveAccrualService
             ]));
         }
 
+        // Apply FIFO and get batch details
+        $fifoDetails = $this->applyFifoWithDetails($employee, $config->id, $transactions);
+
         return [
             'config' => $config,
             'accrued' => round($totalAccrued, 2),
+            'expired' => round($totalExpired, 2),
             'used' => round($totalUsed, 2),
             'balance' => $balance,
             'balance_kd' => round($balance * (7.0 / 5.0), 2),
             'transactions' => $transactions,
             'algorithm' => $algorithm,
+            'fifo_details' => $fifoDetails,
+            'payment_status' => $paymentStatus,
         ];
+    }
+
+    // =========================================================================
+    // EXPIRATION LOGIC
+    // =========================================================================
+
+    /**
+     * Apply expiration rules based on leave type.
+     * Returns expiration transactions and modifies algorithm log.
+     */
+    protected function applyExpiration(array $accrualTransactions, VacationConfig $config, array $rules, Carbon $referenceDate, array &$algorithm): array
+    {
+        $expirations = [];
+        $tip = $config->tip;
+        $carryOverYears = $rules['carry_over_years'] ?? null;
+        $expiresEndOfPeriod = $rules['expires_end_of_period'] ?? false;
+        $usageDeadlineMonths = $rules['usage_deadline_months'] ?? null;
+        $usageDeadlineDays = $rules['usage_deadline_days'] ?? null;
+
+        foreach ($accrualTransactions as $t) {
+            if ($t['transaction_type'] !== 'accrual') continue;
+            if ((float) $t['days_dd'] <= 0) continue;
+
+            $periodTo = Carbon::parse($t['period_to']);
+            $expired = false;
+            $reason = '';
+
+            switch ($tip) {
+                case 1: // Ikgadējais — carry over max 1 year (DL 149§13)
+                    // Working year periods older than 2 years → expire
+                    $carryLimit = $carryOverYears ?? 1;
+                    $expiryDate = $periodTo->copy()->addYears($carryLimit);
+                    if ($referenceDate->gt($expiryDate)) {
+                        $expired = true;
+                        $reason = "Termiņš: pārnests {$carryLimit} gadu laikā (DL 149§13). Beidzās: " . $expiryDate->format('d.m.Y');
+                    }
+                    break;
+
+                case 3: // Mācību — 20 DD per calendar year, no carry-over
+                case 5: // Papild. bērniem — must use before next annual leave, expire at year end
+                    $yearEnd = Carbon::parse($t['period_to']);
+                    if ($referenceDate->gt($yearEnd)) {
+                        $expired = true;
+                        $reason = $tip === 3
+                            ? "Mācību atvaļinājuma limits beidzās (DL 157). Nav pārnešanas."
+                            : "Papildatvaļinājums jāizmanto līdz nākamā ikgadējā atvaļinājuma laikam (DL 151). Termiņš beidzās.";
+                    }
+                    break;
+
+                case 7: // Paternitātes — 2 months from child birth
+                    if ($usageDeadlineMonths) {
+                        if ($referenceDate->gt($periodTo)) {
+                            $expired = true;
+                            $reason = "Termiņš beidzās: " . $periodTo->format('d.m.Y') . " (2 mēneši no dzimšanas, DL 155)";
+                        }
+                    }
+                    break;
+
+                case 10: // Donora diena — use next working day or by agreement
+                    $deadlineDays = $usageDeadlineDays ?? 30;
+                    $donorDeadline = Carbon::parse($t['period_from'])->addDays($deadlineDays);
+                    if ($referenceDate->gt($donorDeadline)) {
+                        $expired = true;
+                        $reason = "Donora diena jāizmanto {$deadlineDays} dienu laikā (DL 74§6)";
+                    }
+                    break;
+            }
+
+            if ($expired) {
+                $expirations[] = [
+                    'transaction_type' => 'expiration',
+                    'period_from' => $t['period_from'],
+                    'period_to' => $t['period_to'],
+                    'days_dd' => -abs((float) $t['days_dd']),
+                    'remaining_dd' => 0,
+                    'document_id' => null,
+                    'description' => "⏰ Noilgums: " . abs((float) $t['days_dd']) . " DD (" . $reason . ")",
+                ];
+                $algorithm[] = "⏰ Noilgums: " . round(abs((float) $t['days_dd']), 2) . " DD par periodu " .
+                    Carbon::parse($t['period_from'])->format('d.m.Y') . "–" . Carbon::parse($t['period_to'])->format('d.m.Y');
+            }
+        }
+
+        if (!empty($expirations)) {
+            $totalExpired = abs(array_sum(array_column($expirations, 'days_dd')));
+            $algorithm[] = "⚠️ **Kopā noilgušas: " . round($totalExpired, 2) . " DD**";
+        }
+
+        // Add expiration info to algorithm
+        if ($tip === 1) {
+            $carryLimit = $carryOverYears ?? 1;
+            $algorithm[] = "📅 Pārnešanas termiņš: {$carryLimit} gads (DL 149§13). Neizmantotās dienas pēc šī termiņa sadzēšas.";
+        } elseif ($tip === 3) {
+            $algorithm[] = "📅 Limits: 20 DD par kalendāro gadu. Neizmantotās dienas **nepārnesās** uz nākamo gadu.";
+        } elseif ($tip === 5) {
+            $algorithm[] = "📅 Jāizmanto līdz nākamā ikgadējā atvaļinājuma piešķiršanai. Neizmantotās dienas noilgst gada beigās.";
+        } elseif ($tip === 7) {
+            $algorithm[] = "📅 Termiņš: 2 mēneši no bērna dzimšanas. Pēc tam tiesības zūd.";
+        } elseif ($tip === 10) {
+            $deadlineDays = $usageDeadlineDays ?? 30;
+            $algorithm[] = "📅 Jāizmanto {$deadlineDays} dienu laikā pēc ziedošanas. Nekopjas.";
+        }
+
+        return $expirations;
+    }
+
+    // =========================================================================
+    // FIFO WITH BATCH DETAILS
+    // =========================================================================
+
+    /**
+     * Apply FIFO and return batch consumption details.
+     * Returns: [['from' => 'DD.MM.YYYY', 'to' => 'DD.MM.YYYY', 'consumed' => X], ...]
+     */
+    public function applyFifoWithDetails(Employee $employee, int $configId, array $transactions): array
+    {
+        $accruals = LeaveTransaction::where('employee_id', $employee->id)
+            ->where('vacation_config_id', $configId)
+            ->where('transaction_type', 'accrual')
+            ->orderBy('period_from', 'asc')
+            ->get();
+
+        // Get total expired for this type
+        $totalExpired = abs(
+            LeaveTransaction::where('employee_id', $employee->id)
+                ->where('vacation_config_id', $configId)
+                ->where('transaction_type', 'expiration')
+                ->sum('days_dd')
+        );
+
+        // Get total used
+        $totalUsed = abs(
+            LeaveTransaction::where('employee_id', $employee->id)
+                ->where('vacation_config_id', $configId)
+                ->where('transaction_type', 'usage')
+                ->sum('days_dd')
+        );
+
+        $totalToConsume = $totalExpired + $totalUsed;
+
+        if ($totalToConsume <= 0) {
+            // Reset remaining to full
+            foreach ($accruals as $accrual) {
+                $accrual->remaining_dd = $accrual->days_dd;
+                $accrual->save();
+            }
+            return [];
+        }
+
+        // Apply FIFO: oldest accruals consumed first
+        $remaining = $totalToConsume;
+        $fifoDetails = [];
+
+        foreach ($accruals as $accrual) {
+            if ($remaining <= 0) {
+                $accrual->remaining_dd = $accrual->days_dd;
+                $accrual->save();
+                continue;
+            }
+
+            $available = (float) $accrual->days_dd;
+            $consume = min($remaining, $available);
+
+            $accrual->remaining_dd = round($available - $consume, 5);
+            $accrual->save();
+
+            if ($consume > 0) {
+                $fifoDetails[] = [
+                    'period_from' => $accrual->period_from,
+                    'period_to' => $accrual->period_to,
+                    'batch_total' => round($available, 2),
+                    'consumed' => round($consume, 2),
+                    'remaining' => round($available - $consume, 2),
+                    'label' => "No perioda " .
+                        Carbon::parse($accrual->period_from)->format('d.m.Y') . "–" .
+                        Carbon::parse($accrual->period_to)->format('d.m.Y') .
+                        ": izlietots " . round($consume, 2) . " DD, atlikums " . round($available - $consume, 2) . " DD",
+                ];
+            }
+
+            $remaining -= $consume;
+        }
+
+        return $fifoDetails;
     }
 
     // =========================================================================
@@ -132,23 +333,19 @@ class LeaveAccrualService
         $algorithm[] = "Uzkrāj no darba sākuma datuma: " . $baseDate->format('d.m.Y');
         $algorithm[] = "Aprēķina datums: " . $referenceDate->format('d.m.Y');
 
-        // Calculate shifted base date (for bezalgas/bērna kopšanas that shift working year)
         $effectiveBaseDate = $this->getEffectiveBaseDate($employee, $baseDate, $referenceDate);
         if (!$effectiveBaseDate->eq($baseDate)) {
             $algorithm[] = "⚠️ Darba gads nobīdīts uz: " . $effectiveBaseDate->format('d.m.Y') . " (bezalgas/bērna kopšanas >4 nedēļas)";
         }
 
-        // Calculate months worked using ATVREZ_YMD
         $monthsResult = $this->calculateMonthsWorkedAtvrezYmd($effectiveBaseDate, $referenceDate);
         $monthsWorked = $monthsResult['totalMonths'];
 
         $algorithm[] = "Nostrādāts: " . round($monthsWorked, 4) . " mēn. ({$monthsResult['fullMonths']} pilni + " . round($monthsResult['partialMonths'], 4) . " nepilni)";
 
-        // Base accrual
         $earnedDD = round($monthsWorked * $monthlyRate, 5);
         $algorithm[] = "Uzkrājums: " . round($monthlyRate, 4) . " × " . round($monthsWorked, 4) . " = " . round($earnedDD, 2) . " DD";
 
-        // Deduct dienas_neuzkraj for shifts_working_year leave
         $neuzkraj = $this->calculateDienasNeuzkraj($employee, $effectiveBaseDate, $referenceDate, $monthlyRate);
         if ($neuzkraj > 0) {
             $earnedDD = round($earnedDD - $neuzkraj, 5);
@@ -156,6 +353,7 @@ class LeaveAccrualService
         }
 
         $algorithm[] = "**Kopā uzkrāts: " . round($earnedDD, 2) . " DD**";
+        $algorithm[] = "📅 Pārnešana: max " . ($rules['carry_over_years'] ?? 1) . " gads (DL 149§13)";
 
         // Create accrual transaction per working year
         $loopDate = $effectiveBaseDate->copy();
@@ -178,7 +376,7 @@ class LeaveAccrualService
                 'days_dd' => round($yrEarned, 5),
                 'remaining_dd' => round($yrEarned, 5),
                 'document_id' => null,
-                'description' => "Darba gads " . $loopDate->format('d.m.Y') . " - " . $yearEnd->format('d.m.Y') . ": " . round($yrEarned, 2) . " DD",
+                'description' => "Darba gads " . $loopDate->format('d.m.Y') . " – " . $yearEnd->format('d.m.Y') . ": " . round($yrEarned, 2) . " DD",
             ];
 
             $remainingEarned -= $yrEarned;
@@ -210,16 +408,16 @@ class LeaveAccrualService
             ? "Pamats: 3+ bērni vai bērns invalīds (DL 151. pants)"
             : "Pamats: 1-2 bērni līdz 14 gadu vecumam (DL 150. pants)";
         $algorithm[] = "Piešķir par katru kalendāro gadu, kurā darbinieks strādā.";
+        $algorithm[] = "⚠️ Jāizmanto līdz nākamā ikgadējā atvaļinājuma piešķiršanai, citādi noilgst (DL 151).";
 
-        // Grant per calendar year the employee has been working
-        $startYear = max($baseDate->year, $referenceDate->copy()->subYears(5)->year);
+        // Only generate for current calendar year (old years expire)
+        $startYear = max($baseDate->year, $referenceDate->copy()->subYears(2)->year);
         $endYear = $referenceDate->year;
 
         for ($year = $startYear; $year <= $endYear; $year++) {
             $yearStart = Carbon::createFromDate($year, 1, 1);
             $yearEnd = Carbon::createFromDate($year, 12, 31);
 
-            // Employee must be working during this year
             if ($baseDate->gt($yearEnd)) continue;
             if ($baseDate->gt($yearStart)) $yearStart = $baseDate->copy();
 
@@ -234,9 +432,6 @@ class LeaveAccrualService
             ];
         }
 
-        $totalAccrued = $extraDays * ($endYear - $startYear + 1);
-        $algorithm[] = "**Kopā uzkrāts: {$totalAccrued} DD** (par gadiem {$startYear}-{$endYear})";
-
         return [$transactions, $algorithm];
     }
 
@@ -250,7 +445,7 @@ class LeaveAccrualService
 
         $algorithm[] = "📋 **Bērna kopšanas atvaļinājums** (DL 156. pants)";
         $algorithm[] = "Piešķir sakarā ar bērna dzimšanu — līdz 1.5 gadam.";
-        $algorithm[] = "Darba devējs neapmaksā (VSAA). Periods >4 nedēļas nobīda darba gadu.";
+        $algorithm[] = "Periods >4 nedēļas nobīda darba gadu.";
         $algorithm[] = "Nav uzkrājuma — piešķir pēc pieprasījuma ar dokumentu.";
 
         return [$transactions, $algorithm];
@@ -267,11 +462,12 @@ class LeaveAccrualService
         $algorithm[] = "📋 **Mācību atvaļinājums** (DL 157. pants)";
         $algorithm[] = "Līdz 20 DD gadā mācību vajadzībām.";
         $algorithm[] = "Ja mācības saistītas ar darbu — saglabā darba algu.";
+        $algorithm[] = "Ja nav saistītas — neapmaksāts (vai pēc vienošanās).";
         $algorithm[] = "Izlaidumam/diplomdarba aizstāvēšanai — 20 apmaksātas DD.";
-        $algorithm[] = "Limits tiek sekots pa kalendāra gadiem.";
+        $algorithm[] = "⚠️ Neizmantotais limits **nepārnesās** uz nākamo gadu.";
 
-        // Max 20 DD per calendar year as entitlement
-        $startYear = max($baseDate->year, $referenceDate->copy()->subYears(2)->year);
+        // Only create for current calendar year and previous (old ones expire via applyExpiration)
+        $startYear = max($baseDate->year, $referenceDate->copy()->subYears(1)->year);
         $endYear = $referenceDate->year;
 
         for ($year = $startYear; $year <= $endYear; $year++) {
@@ -318,7 +514,7 @@ class LeaveAccrualService
         $algorithm[] = "Pirmsdzemdību: 56 KD (vai 70 KD, ja uzsākta med. aprūpe līdz 12. nedēļai).";
         $algorithm[] = "Pēcdzemdību: 56 KD (vai 70 KD komplikāciju / daudzaugļu gadījumā).";
         $algorithm[] = "⚠️ Šis periods NENOBĪDA darba gadu — ieskaitās laikā, kas dod tiesības uz ikgadējo atvaļinājumu.";
-        $algorithm[] = "Piešķir pēc B-lapas iesniegšanas, apmaksā VSAA.";
+        $algorithm[] = "Piešķir pēc B-lapas iesniegšanas.";
 
         return [[], $algorithm];
     }
@@ -334,9 +530,7 @@ class LeaveAccrualService
         $algorithm[] = "📋 **Paternitātes atvaļinājums** (DL 155. pants)";
         $algorithm[] = "Bērna tēvam: 10 DD sakarā ar bērna dzimšanu.";
         $algorithm[] = "Jāizmanto 2 mēnešu laikā no bērna dzimšanas dienas.";
-        $algorithm[] = "Apmaksā VSAA (nevis darba devējs).";
 
-        // Check for child birth documents
         $childDocs = Document::where('employee_id', $employee->id)
             ->where('type', 'child_registration')
             ->get();
@@ -347,6 +541,9 @@ class LeaveAccrualService
 
             if ($childDob) {
                 $deadline = $childDob->copy()->addMonths(2);
+                $isExpired = $referenceDate->gt($deadline);
+                $statusLabel = $isExpired ? " ⏰ NOILDZIS" : " ✅ Aktīvs";
+
                 $transactions[] = [
                     'transaction_type' => 'accrual',
                     'period_from' => $childDob->toDateString(),
@@ -354,9 +551,9 @@ class LeaveAccrualService
                     'days_dd' => 10,
                     'remaining_dd' => 10,
                     'document_id' => $doc->id,
-                    'description' => "Paternitātes atvaļinājums: 10 DD (bērns dz. " . $childDob->format('d.m.Y') . ", termiņš līdz " . $deadline->format('d.m.Y') . ")",
+                    'description' => "Paternitātes atvaļinājums: 10 DD (bērns dz. " . $childDob->format('d.m.Y') . ", termiņš līdz " . $deadline->format('d.m.Y') . ")" . $statusLabel,
                 ];
-                $algorithm[] = "Bērns dz. " . $childDob->format('d.m.Y') . " → 10 DD, termiņš: " . $deadline->format('d.m.Y');
+                $algorithm[] = "Bērns dz. " . $childDob->format('d.m.Y') . " → 10 DD, termiņš: " . $deadline->format('d.m.Y') . $statusLabel;
             }
         }
 
@@ -371,27 +568,33 @@ class LeaveAccrualService
         $transactions = [];
         $algorithm = [];
 
+        $deadlineDays = $rules['usage_deadline_days'] ?? 30;
+
         $algorithm[] = "📋 **Asins donora diena** (DL 74. panta 6. daļa)";
         $algorithm[] = "Pēc asins ziedošanas darbiniekam piešķir 1 apmaksātu atpūtas dienu.";
         $algorithm[] = "Jāizmanto nākamajā darba dienā vai pēc vienošanās citā dienā.";
         $algorithm[] = "Piešķir uz dokumenta pamata (donora izziņa).";
+        $algorithm[] = "⚠️ Termiņš: {$deadlineDays} dienas. Nekopjas.";
 
-        // Check for donor documents
         $donorDocs = Document::where('employee_id', $employee->id)
             ->where('type', 'donor_day')
             ->get();
 
         foreach ($donorDocs as $doc) {
+            $donationDate = $doc->date_from ? $doc->date_from->copy() : now();
+            $deadline = $donationDate->copy()->addDays($deadlineDays);
+            $isExpired = $referenceDate->gt($deadline);
+
             $transactions[] = [
                 'transaction_type' => 'accrual',
-                'period_from' => $doc->date_from ? $doc->date_from->toDateString() : now()->toDateString(),
-                'period_to' => $doc->date_from ? $doc->date_from->copy()->addDays(30)->toDateString() : now()->addDays(30)->toDateString(),
+                'period_from' => $donationDate->toDateString(),
+                'period_to' => $deadline->toDateString(),
                 'days_dd' => 1,
                 'remaining_dd' => 1,
                 'document_id' => $doc->id,
-                'description' => "Donora diena: 1 DD (ziedošana " . ($doc->date_from ? $doc->date_from->format('d.m.Y') : '?') . ")",
+                'description' => "Donora diena: 1 DD (ziedošana " . $donationDate->format('d.m.Y') . ", termiņš līdz " . $deadline->format('d.m.Y') . ")" . ($isExpired ? " ⏰ NOILDZIS" : ""),
             ];
-            $algorithm[] = "Ziedošana " . ($doc->date_from ? $doc->date_from->format('d.m.Y') : '?') . " → 1 DD";
+            $algorithm[] = "Ziedošana " . $donationDate->format('d.m.Y') . " → 1 DD" . ($isExpired ? " ⏰ NOILDZIS" : "");
         }
 
         return [$transactions, $algorithm];
@@ -433,7 +636,6 @@ class LeaveAccrualService
             $start = Carbon::parse($doc->date_from);
             $end = Carbon::parse($doc->date_to);
 
-            // Count working days
             $dd = 0;
             $current = $start->copy();
             while ($current->lte($end)) {
@@ -452,54 +654,11 @@ class LeaveAccrualService
                 'days_dd' => -$dd,
                 'remaining_dd' => 0,
                 'document_id' => $doc->id,
-                'description' => "Izmantots {$dd} DD / {$kd} KD ({$config->name}, " . $start->format('d.m.Y') . " - " . $end->format('d.m.Y') . ")",
+                'description' => "Izmantots {$dd} DD / {$kd} KD ({$config->name}, " . $start->format('d.m.Y') . " – " . $end->format('d.m.Y') . ")",
             ];
         }
 
         return $usageTransactions;
-    }
-
-    // =========================================================================
-    // FIFO: Apply usage to accrual remaining_dd after all transactions saved
-    // =========================================================================
-    public function applyFifo(Employee $employee, int $configId): void
-    {
-        // Reset all accrual remaining_dd to full
-        LeaveTransaction::where('employee_id', $employee->id)
-            ->where('vacation_config_id', $configId)
-            ->where('transaction_type', 'accrual')
-            ->get()
-            ->each(function ($t) {
-                $t->remaining_dd = $t->days_dd;
-                $t->save();
-            });
-
-        // Get total usage
-        $totalUsed = abs(
-            LeaveTransaction::where('employee_id', $employee->id)
-                ->where('vacation_config_id', $configId)
-                ->where('transaction_type', 'usage')
-                ->sum('days_dd')
-        );
-
-        if ($totalUsed <= 0) return;
-
-        // Apply FIFO
-        $accruals = LeaveTransaction::where('employee_id', $employee->id)
-            ->where('vacation_config_id', $configId)
-            ->where('transaction_type', 'accrual')
-            ->orderBy('period_from', 'asc')
-            ->get();
-
-        $remaining = $totalUsed;
-        foreach ($accruals as $accrual) {
-            if ($remaining <= 0) break;
-
-            $consume = min($remaining, (float) $accrual->days_dd);
-            $accrual->remaining_dd = round((float) $accrual->days_dd - $consume, 5);
-            $accrual->save();
-            $remaining -= $consume;
-        }
     }
 
     // =========================================================================
@@ -529,10 +688,6 @@ class LeaveAccrualService
         return $employee->sakdatums ? Carbon::parse($employee->sakdatums) : null;
     }
 
-    /**
-     * Calculate effective base date accounting for working year shifts.
-     * Bezalgas and bērna kopšanas >4 weeks shift the working year.
-     */
     protected function getEffectiveBaseDate(Employee $employee, Carbon $baseDate, Carbon $referenceDate): Carbon
     {
         $shiftDays = 0;
@@ -555,7 +710,7 @@ class LeaveAccrualService
             $start = Carbon::parse($doc->date_from);
             $end = Carbon::parse($doc->date_to);
             $totalKD = $start->diffInDays($end) + 1;
-            $thresholdDays = ($rules['shifts_working_year_threshold_weeks'] ?? 4) * 7; // 4 weeks = 28 days
+            $thresholdDays = ($rules['shifts_working_year_threshold_weeks'] ?? 4) * 7;
 
             if ($totalKD > $thresholdDays) {
                 $shiftDays += ($totalKD - $thresholdDays);
@@ -565,10 +720,6 @@ class LeaveAccrualService
         return $shiftDays > 0 ? $baseDate->copy()->addDays($shiftDays) : $baseDate->copy();
     }
 
-    /**
-     * Deduct accrual for periods spent on shifts_working_year leave.
-     * Mirrors ALGA BK_ATV_DIENAS logic.
-     */
     protected function calculateDienasNeuzkraj(Employee $employee, Carbon $baseDate, Carbon $referenceDate, float $monthlyRate): float
     {
         $totalDeduction = 0.0;
@@ -602,10 +753,6 @@ class LeaveAccrualService
         return $totalDeduction;
     }
 
-    /**
-     * ATVREZ_YMD algorithm from ALGA.
-     * Calculates full and partial months between two dates.
-     */
     protected function calculateMonthsWorkedAtvrezYmd(Carbon $dateFrom, Carbon $dateTo): array
     {
         $y1 = (int) $dateFrom->year;

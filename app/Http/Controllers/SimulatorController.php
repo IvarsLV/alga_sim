@@ -25,11 +25,6 @@ class SimulatorController extends Controller
         // Calculate all leave balances
         $leaveData = $leaveAccrualService->calculateAll($employee);
 
-        // Apply FIFO for each type
-        foreach ($leaveData as $configId => $data) {
-            $leaveAccrualService->applyFifo($employee, $configId);
-        }
-
         // Build balance table for frontend
         $balanceTable = [];
         foreach ($leaveData as $configId => $data) {
@@ -39,11 +34,14 @@ class SimulatorController extends Controller
                 'config_tip' => $data['config']->tip,
                 'description' => $data['config']->description,
                 'accrued' => $data['accrued'],
+                'expired' => $data['expired'] ?? 0,
                 'used' => $data['used'],
                 'balance_dd' => $data['balance'],
                 'balance_kd' => $data['balance_kd'],
                 'transactions' => $data['transactions'],
                 'algorithm' => $data['algorithm'],
+                'fifo_details' => $data['fifo_details'] ?? [],
+                'payment_status' => $data['payment_status'] ?? 'apmaksāts',
                 'rules' => is_string($data['config']->rules) 
                     ? json_decode($data['config']->rules, true) 
                     : ($data['config']->rules ?? []),

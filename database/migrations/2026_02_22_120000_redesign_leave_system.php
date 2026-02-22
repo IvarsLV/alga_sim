@@ -13,7 +13,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('employee_id')->constrained('employees')->cascadeOnDelete();
             $table->foreignId('vacation_config_id')->constrained('vacation_configs')->cascadeOnDelete();
-            $table->enum('transaction_type', ['accrual', 'usage']);
+            $table->enum('transaction_type', ['accrual', 'usage', 'expiration']);
             $table->date('period_from')->nullable();
             $table->date('period_to')->nullable();
             $table->decimal('days_dd', 10, 5);         // working days (transaction amount)
