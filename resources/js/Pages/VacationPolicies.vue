@@ -74,12 +74,7 @@ const submitForm = () => {
 };
 
 const rulesJsonPreview = computed(() => {
-    return "{\n" +
-           `  "measure_unit": "${form.rules.measure_unit}",\n` +
-           `  "financial_formula": "${form.rules.financial_formula}",\n` +
-           `  "accrual_per_month": ${form.is_accruable ? Number((form.norm_days / 12).toFixed(2)) : 0},\n` +
-           `  "shifts_working_year": ${form.rules.shifts_working_year}\n` +
-           "}";
+    return JSON.stringify(form.rules, null, 2);
 });
 
 const getFormulaBadgeClass = (formula) => {
@@ -249,8 +244,8 @@ const getLawColor = (lawRef) => {
                             </div>
 
                             <div class="p-5 bg-gray-50 border border-gray-100 rounded-xl space-y-5">
+                                <!-- Row 1: Accrual toggle + Norm/Unit -->
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
-                                    <!-- Left side: Accrual toggle -->
                                     <div class="pt-2">
                                         <label class="flex items-start cursor-pointer group">
                                             <div class="flex items-center h-5">
@@ -258,49 +253,127 @@ const getLawColor = (lawRef) => {
                                             </div>
                                             <div class="ml-3 text-sm">
                                                 <span class="font-semibold text-gray-900 block group-hover:text-indigo-600 transition">Uzkrāj bilanci</span>
-                                                <span class="text-gray-500 font-normal mt-0.5 block">Vai šim atvaļinājumam tiek veidots dienu uzkrājums (piem. 28 d/gadā).</span>
+                                                <span class="text-gray-500 font-normal mt-0.5 block">Vai šim atvaļinājumam tiek veidots dienu uzkrājums.</span>
                                             </div>
                                         </label>
                                     </div>
-                                    <!-- Right side: Norm, Measure Unit & Formula -->
-                                    <div class="grid grid-cols-1 gap-4">
-                                        <div class="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <InputLabel for="norm_days" value="Normas d./gadā" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                                <input id="norm_days" type="number" step="0.5" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 disabled:bg-gray-200 disabled:text-gray-400 transition" v-model="form.norm_days" :disabled="!form.is_accruable" />
-                                            </div>
-                                            <div>
-                                                <InputLabel value="Mērvienība" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                                <select v-model="form.rules.measure_unit" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 transition">
-                                                    <option value="DD">DD (Darba dienas)</option>
-                                                    <option value="KD">KD (Kalendārās dienas)</option>
-                                                </select>
-                                            </div>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <InputLabel for="norm_days" value="Norma d./gadā" class="mb-1.5 text-gray-700 font-medium text-sm" />
+                                            <input id="norm_days" type="number" step="0.5" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 disabled:bg-gray-200 disabled:text-gray-400 transition" v-model="form.norm_days" :disabled="!form.is_accruable" />
                                         </div>
                                         <div>
-                                            <InputLabel value="Finanšu formula" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                            <select v-model="form.rules.financial_formula" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 transition">
-                                                <option value="average_salary">Vidējā izpeļņa (DL 75.pants)</option>
-                                                <option value="base_salary">Saglabāta pamatalga (DL 74.pants)</option>
-                                                <option value="unpaid">Neapmaksāts (0.00 EUR)</option>
+                                            <InputLabel value="Mērvienība" class="mb-1.5 text-gray-700 font-medium text-sm" />
+                                            <select v-model="form.rules.measure_unit" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 transition">
+                                                <option value="DD">DD (Darba dienas)</option>
+                                                <option value="KD">KD (Kalendārās dienas)</option>
                                             </select>
                                         </div>
                                     </div>
                                 </div>
+
+                                <!-- Row 2: Core method settings -->
+                                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-gray-200">
+                                    <div>
+                                        <InputLabel value="Uzkrāšanas metode" class="mb-1.5 text-gray-700 font-medium text-sm" />
+                                        <select v-model="form.rules.accrual_method" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 transition text-sm">
+                                            <option value="monthly">Ikmēneša</option>
+                                            <option value="yearly">Ikgadēja</option>
+                                            <option value="per_event">Pēc notikuma</option>
+                                            <option value="on_request">Pēc pieprasījuma</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <InputLabel value="Perioda tips" class="mb-1.5 text-gray-700 font-medium text-sm" />
+                                        <select v-model="form.rules.period_type" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 transition text-sm">
+                                            <option value="working_year">Darba gads</option>
+                                            <option value="calendar_year">Kalendārais gads</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <InputLabel value="Apmaksa" class="mb-1.5 text-gray-700 font-medium text-sm" />
+                                        <select v-model="form.rules.payment_status" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 transition text-sm">
+                                            <option value="apmaksāts">Apmaksāts</option>
+                                            <option value="neapmaksāts">Neapmaksāts</option>
+                                            <option value="VSAA">VSAA</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <InputLabel value="Finanšu formula" class="mb-1.5 text-gray-700 font-medium text-sm" />
+                                        <select v-model="form.rules.financial_formula" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 transition text-sm">
+                                            <option value="average_salary">Vidējā izpeļņa</option>
+                                            <option value="base_salary">Pamatalga</option>
+                                            <option value="unpaid">Neapmaksāts</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- Row 3: Law reference + Shifts working year -->
+                                <div class="grid grid-cols-2 gap-4 pt-4 border-t border-gray-200">
+                                    <div>
+                                        <InputLabel value="Likuma atsauce" class="mb-1.5 text-gray-700 font-medium text-sm" />
+                                        <input type="text" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 text-sm" v-model="form.rules.law_reference" placeholder="piem. DL 149" />
+                                    </div>
+                                    <div class="pt-7">
+                                        <label class="flex items-center cursor-pointer group">
+                                            <input type="checkbox" class="w-5 h-5 rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500 transition" v-model="form.rules.shifts_working_year" />
+                                            <span class="ml-3 text-sm font-semibold text-gray-900 group-hover:text-indigo-600 transition">Pārceļ darba gadu (>28 d.)</span>
+                                        </label>
+                                    </div>
+                                </div>
                             </div>
 
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start mt-2 border-t border-gray-100 pt-6">
-                                <!-- Left side: Monthly accrual info -->
-                                <div>
-                                    <InputLabel value="Uzkrājums dienās/mēnesī" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                    <input type="text" class="block w-full border-gray-200 rounded-lg shadow-sm bg-gray-50 text-gray-500 font-mono" :value="form.is_accruable ? (form.norm_days / 12).toFixed(2).replace('.', ',') : '0'" readonly />
+                            <!-- EXPIRATION / ANULĒŠANA -->
+                            <div class="p-5 bg-amber-50 border border-amber-100 rounded-xl space-y-4">
+                                <h3 class="text-sm font-bold text-amber-800 uppercase tracking-wider">⏰ Anulēšanas noteikumi</h3>
+                                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    <div>
+                                        <InputLabel value="Pārnešana (gadi)" class="mb-1.5 text-gray-700 font-medium text-sm" />
+                                        <input type="number" step="1" min="0" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-amber-500 focus:ring-amber-500 text-gray-900 text-sm" v-model.number="form.rules.carry_over_years" placeholder="—" />
+                                        <p class="text-[10px] text-gray-400 mt-1">Cik gadus var pārnest</p>
+                                    </div>
+                                    <div>
+                                        <InputLabel value="Termiņš (mēneši)" class="mb-1.5 text-gray-700 font-medium text-sm" />
+                                        <input type="number" step="1" min="0" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-amber-500 focus:ring-amber-500 text-gray-900 text-sm" v-model.number="form.rules.usage_deadline_months" placeholder="—" />
+                                        <p class="text-[10px] text-gray-400 mt-1">Pēc notikuma, mēnešos</p>
+                                    </div>
+                                    <div>
+                                        <InputLabel value="Termiņš (dienas)" class="mb-1.5 text-gray-700 font-medium text-sm" />
+                                        <input type="number" step="1" min="0" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-amber-500 focus:ring-amber-500 text-gray-900 text-sm" v-model.number="form.rules.usage_deadline_days" placeholder="—" />
+                                        <p class="text-[10px] text-gray-400 mt-1">Pēc notikuma, dienās</p>
+                                    </div>
+                                    <div class="pt-7">
+                                        <label class="flex items-center cursor-pointer group">
+                                            <input type="checkbox" class="w-4 h-4 rounded border-gray-300 text-amber-600 shadow-sm focus:ring-amber-500 transition" v-model="form.rules.expires_end_of_period" />
+                                            <span class="ml-2 text-sm font-medium text-gray-700">Anulējas perioda beigās</span>
+                                        </label>
+                                    </div>
                                 </div>
-                                <!-- Right side: Shifts working year toggle -->
-                                <div class="pt-8">
-                                    <label class="flex items-center cursor-pointer group">
-                                        <input type="checkbox" class="w-5 h-5 rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500 transition" v-model="form.rules.shifts_working_year" />
-                                        <span class="ml-3 text-sm font-semibold text-gray-900 group-hover:text-indigo-600 transition">Pārceļ darba gadu (>28 d. neapmaksāts periods)</span>
-                                    </label>
+                            </div>
+
+                            <!-- PER-EVENT SETTINGS (only shown when per_event) -->
+                            <div v-if="form.rules.accrual_method === 'per_event'" class="p-5 bg-blue-50 border border-blue-100 rounded-xl space-y-4">
+                                <h3 class="text-sm font-bold text-blue-800 uppercase tracking-wider">📄 Notikuma iestatījumi</h3>
+                                <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <InputLabel value="Dokumenta tips" class="mb-1.5 text-gray-700 font-medium text-sm" />
+                                        <select v-model="form.rules.event_source" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-900 text-sm">
+                                            <option :value="null">— Nav —</option>
+                                            <option value="child_registration">Bērna reģistrācija</option>
+                                            <option value="donor_day">Donora diena</option>
+                                            <option value="maternity">Grūtniecības dokuments</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <InputLabel value="Dienas par notikumu" class="mb-1.5 text-gray-700 font-medium text-sm" />
+                                        <input type="number" step="1" min="1" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-900 text-sm" v-model.number="form.rules.event_days" placeholder="1" />
+                                    </div>
+                                    <div class="pt-7">
+                                        <label class="flex items-center cursor-pointer group">
+                                            <input type="checkbox" class="w-4 h-4 rounded border-gray-300 text-blue-600 shadow-sm focus:ring-blue-500 transition" v-model="form.rules.requires_hire_date_check" />
+                                            <span class="ml-2 text-sm font-medium text-gray-700">Pārbaudīt pieņ. datumu</span>
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
 
