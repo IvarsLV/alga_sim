@@ -78,6 +78,40 @@ const submitForm = () => {
     }
 };
 
+const updateIsAccruable = () => {
+    if (form.rules.accrual_method === 'on_request') {
+        form.is_accruable = false;
+        form.norm_days = 0;
+    } else {
+        form.is_accruable = true;
+    }
+};
+
+const getExpirationMode = () => {
+    if (form.rules.expires_end_of_period) return 'end_of_period';
+    if (form.rules.carry_over_years !== null && form.rules.carry_over_years !== undefined) return 'carry';
+    if ((form.rules.usage_deadline_months !== null && form.rules.usage_deadline_months !== undefined) || 
+        (form.rules.usage_deadline_days !== null && form.rules.usage_deadline_days !== undefined)) return 'deadline';
+    return 'none';
+};
+
+const setExpirationMode = (mode) => {
+    // Reset all
+    form.rules.expires_end_of_period = false;
+    form.rules.carry_over_years = null;
+    form.rules.usage_deadline_months = null;
+    form.rules.usage_deadline_days = null;
+
+    if (mode === 'end_of_period') {
+        form.rules.expires_end_of_period = true;
+    } else if (mode === 'carry') {
+        form.rules.carry_over_years = 1; // Default
+    } else if (mode === 'deadline') {
+        form.rules.usage_deadline_months = 6; // Default
+        form.rules.usage_deadline_days = 0;
+    }
+};
+
 const rulesJsonPreview = computed(() => {
     return JSON.stringify(form.rules, null, 2);
 });
@@ -261,138 +295,158 @@ const getLawColor = (lawRef) => {
                                 <textarea id="description" v-model="form.description" rows="3" class="block w-full border border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 text-gray-800 resize-y p-3 rounded-md" placeholder="DL 149.pants. Darba ņēmējam ir tiesības uz ikgadējo apmaksāto atvaļinājumu..."></textarea>
                             </div>
 
-                            <div class="p-5 bg-gray-50 border border-gray-100 rounded-xl space-y-5">
-                                <!-- Row 1: Accrual toggle + Norm/Unit -->
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
-                                    <div class="pt-2">
-                                        <label class="flex items-start cursor-pointer group">
-                                            <div class="flex items-center h-5">
-                                                <input type="checkbox" class="w-5 h-5 rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500 transition" v-model="form.is_accruable" />
-                                            </div>
-                                            <div class="ml-3 text-sm">
-                                                <span class="font-semibold text-gray-900 block group-hover:text-indigo-600 transition">Uzkrāj bilanci</span>
-                                                <span class="text-gray-500 font-normal mt-0.5 block">Vai šim atvaļinājumam tiek veidots dienu uzkrājums.</span>
-                                            </div>
-                                        </label>
+                            <div class="space-y-6 pt-4">
+
+                                <!-- Sentence 1: Accrual & Base -->
+                                <div class="p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                                    <div class="flex flex-wrap items-baseline gap-2 text-gray-800 text-[15px] leading-8">
+                                        <span>Piešķirt</span>
+                                        <template v-if="form.rules.accrual_method !== 'on_request'">
+                                            <input 
+                                                type="number" 
+                                                step="0.5" 
+                                                v-model="form.norm_days" 
+                                                class="w-20 inline-block text-center border-b-2 border-t-0 border-x-0 border-indigo-400 bg-indigo-50/50 hover:bg-indigo-50 focus:ring-0 focus:border-indigo-600 font-bold text-indigo-900 px-1 py-0 h-8 rounded-t-md transition-colors" 
+                                            />
+                                        </template>
+                                        <template v-else>
+                                            <span class="font-bold text-gray-400 italic">bez normas (pēc pieprasījuma)</span>
+                                        </template>
+                                        
+                                        <select 
+                                            v-model="form.rules.measure_unit" 
+                                            class="inline-block border-none bg-transparent hover:bg-gray-100 rounded-md py-0 px-8 font-bold text-indigo-700 focus:ring-0 cursor-pointer transition-colors"
+                                        >
+                                            <option value="DD">darba dienas (DD)</option>
+                                            <option value="KD">kalendārās dienas (KD)</option>
+                                        </select>
+                                        
+                                        <span>gadā, un uzkrājumu veidot</span>
+                                        
+                                        <select 
+                                            v-model="form.rules.accrual_method"
+                                            @change="updateIsAccruable"
+                                            class="inline-block border-none bg-transparent hover:bg-gray-100 rounded-md py-0 pl-1 pr-6 font-bold text-indigo-700 focus:ring-0 cursor-pointer transition-colors"
+                                        >
+                                            <option value="monthly">ik mēnesi pakāpeniski</option>
+                                            <option value="yearly">uzreiz par gadu</option>
+                                            <option value="per_event">tikai pēc notikuma</option>
+                                            <option value="on_request">pēc pieprasījuma (bez normas)</option>
+                                        </select>
+                                        <span>.</span>
                                     </div>
-                                    <div class="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <InputLabel for="norm_days" value="Norma d./gadā" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                            <input id="norm_days" type="number" step="0.5" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 disabled:bg-gray-200 disabled:text-gray-400 transition" v-model="form.norm_days" :disabled="!form.is_accruable" />
-                                        </div>
-                                        <div>
-                                            <InputLabel value="Mērvienība" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                            <select v-model="form.rules.measure_unit" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 transition">
-                                                <option value="DD">DD (Darba dienas)</option>
-                                                <option value="KD">KD (Kalendārās dienas)</option>
-                                            </select>
-                                        </div>
+                                    
+                                    <!-- PER EVENT Extra Sentence -->
+                                    <div v-if="form.rules.accrual_method === 'per_event'" class="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-baseline gap-2 text-gray-600 text-[14px]">
+                                        <span class="text-blue-500">ℹ️ Notikuma avots ir</span>
+                                        <select v-model="form.rules.event_source" class="inline-block border-b border-t-0 border-x-0 border-blue-300 bg-transparent py-0 px-2 font-semibold text-blue-700 focus:ring-0 text-sm h-7">
+                                            <option :value="null">— Nav norādīts —</option>
+                                            <option value="child_registration">bērna piedzimšana (apliecība)</option>
+                                            <option value="donor_day">asins nodošana d. (izziņa)</option>
+                                            <option value="maternity">ārsta slapa (B lapa)</option>
+                                        </select>
+                                        <span>, par ko dodas maksimāli</span>
+                                        <input type="number" step="1" v-model.number="form.rules.event_days" class="w-16 inline-block text-center border-b border-t-0 border-x-0 border-blue-300 py-0 px-1 font-bold h-7 text-sm mx-1 focus:ring-0 focus:border-blue-500" />
+                                        <span>dienas.</span>
+                                        <label class="ml-4 flex items-center cursor-pointer text-sm font-medium text-gray-500 hover:text-gray-900">
+                                            <input type="checkbox" v-model="form.rules.requires_hire_date_check" class="w-4 h-4 mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                                            Pārbaudīt pieņemšanas datumu
+                                        </label>
                                     </div>
                                 </div>
 
-                                <!-- Row 2: Core method settings -->
-                                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-gray-200">
-                                    <div>
-                                        <InputLabel value="Uzkrāšanas metode" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                        <select v-model="form.rules.accrual_method" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 transition text-sm">
-                                            <option value="monthly">Ikmēneša</option>
-                                            <option value="yearly">Ikgadēja</option>
-                                            <option value="per_event">Pēc notikuma</option>
-                                            <option value="on_request">Pēc pieprasījuma</option>
+                                <!-- Sentence 2: Expiration -->
+                                <div class="p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                                    <div class="flex flex-wrap items-baseline gap-2 text-gray-800 text-[15px] leading-8">
+                                        <span>Neizmantotās dienas</span>
+                                        <select 
+                                            :value="getExpirationMode()"
+                                            @change="setExpirationMode($event.target.value)"
+                                            class="inline-block border-none bg-transparent hover:bg-gray-100 rounded-md py-0 pl-1 pr-6 font-bold text-amber-700 focus:ring-0 cursor-pointer transition-colors"
+                                        >
+                                            <option value="none">nepāriet (turpina krāties mūžīgi)</option>
+                                            <option value="carry">tiek pārnestas uz nākamo gadu</option>
+                                            <option value="end_of_period">dzēšas (anulējas) perioda beigās</option>
+                                            <option value="deadline">dzēšas pēc noteikta laika</option>
                                         </select>
+                                        
+                                        <!-- Inline options based on choice -->
+                                        <template v-if="getExpirationMode() === 'carry'">
+                                            <span>uz maksimāli</span>
+                                            <input type="number" step="1" min="0" v-model.number="form.rules.carry_over_years" class="w-16 inline-block text-center border-b-2 border-t-0 border-x-0 border-amber-400 bg-amber-50/50 focus:ring-0 focus:border-amber-600 font-bold text-amber-900 px-1 py-0 h-8 rounded-t-md mx-1" placeholder="gadi" />
+                                            <span>gadiem.</span>
+                                        </template>
+                                        
+                                        <template v-else-if="getExpirationMode() === 'deadline'">
+                                            <span>— tās jāizmanto</span>
+                                            <input type="number" step="1" min="0" v-model.number="form.rules.usage_deadline_months" class="w-16 inline-block text-center border-b-2 border-t-0 border-x-0 border-amber-400 bg-amber-50/50 focus:ring-0 focus:border-amber-600 font-bold text-amber-900 px-1 py-0 h-8 rounded-t-md mx-1" placeholder="mēn." />
+                                            <span>mēnešu un</span>
+                                            <input type="number" step="1" min="0" v-model.number="form.rules.usage_deadline_days" class="w-16 inline-block text-center border-b-2 border-t-0 border-x-0 border-amber-400 bg-amber-50/50 focus:ring-0 focus:border-amber-600 font-bold text-amber-900 px-1 py-0 h-8 rounded-t-md mx-1" placeholder="dien." />
+                                            <span>dienu laikā pēc piešķiršanas.</span>
+                                        </template>
+                                        
+                                        <template v-else-if="getExpirationMode() === 'end_of_period'">
+                                            <span>.</span>
+                                        </template>
+                                        <template v-else>
+                                            <span>.</span>
+                                        </template>
                                     </div>
-                                    <div>
-                                        <InputLabel value="Perioda tips" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                        <select v-model="form.rules.period_type" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 transition text-sm">
-                                            <option value="working_year">Darba gads</option>
-                                            <option value="calendar_year">Kalendārais gads</option>
+                                </div>
+
+                                <!-- Sentence 3: Period & Mechanics -->
+                                <div class="p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                                    <div class="flex flex-wrap items-baseline gap-2 text-gray-800 text-[15px] leading-8">
+                                        <span>Atvaļinājuma norēķinu periods ir</span>
+                                        <select 
+                                            v-model="form.rules.period_type"
+                                            class="inline-block border-none bg-transparent hover:bg-gray-100 rounded-md py-0 pl-1 pr-6 font-bold text-teal-700 focus:ring-0 cursor-pointer transition-colors"
+                                        >
+                                            <option value="working_year">darba gads (sākas pieņemšanas datumā)</option>
+                                            <option value="calendar_year">kalendārais gads (no 1. janvāra)</option>
                                         </select>
+                                        <span>.</span>
                                     </div>
-                                    <div>
-                                        <InputLabel value="Apmaksa" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                        <select v-model="form.rules.payment_status" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 transition text-sm">
+                                    <div class="mt-3 pt-3 flex items-center gap-3">
+                                        <label class="flex items-center cursor-pointer group">
+                                            <input type="checkbox" v-model="form.rules.shifts_working_year" class="w-5 h-5 rounded border-gray-300 text-teal-600 shadow-sm focus:ring-teal-500 transition cursor-pointer" />
+                                            <span class="ml-3 text-[14px] font-medium text-gray-700 group-hover:text-teal-700 transition">Ja darbinieks ilgstoši ir prom (bez algas > 4 ned.), tad pārcelt viņa darba gadu uz priekšu.</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <!-- Sentence 4: Payment & Legend -->
+                                <div class="p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                                    <div class="flex flex-wrap items-baseline gap-2 text-gray-800 text-[15px] leading-8">
+                                        <span>Šo atvaļinājumu apmaksā</span>
+                                        <select 
+                                            v-model="form.rules.payment_status"
+                                            class="inline-block border-none bg-transparent hover:bg-gray-100 rounded-md py-0 pl-1 pr-6 font-bold text-emerald-700 focus:ring-0 cursor-pointer transition-colors"
+                                        >
                                             <option value="apmaksāts">Uzņēmums</option>
-                                            <option value="neapmaksāts">Neapmaksāts</option>
-                                            <option value="VSAA">VSAA</option>
+                                            <option value="neapmaksāts">neviens (neapmaksāts)</option>
+                                            <option value="VSAA">Valsts (VSAA)</option>
                                         </select>
-                                    </div>
-                                    <div>
-                                        <InputLabel value="Finanšu formula" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                        <select v-model="form.rules.financial_formula" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 transition text-sm">
+                                        
+                                        <span v-if="form.rules.payment_status === 'apmaksāts'">, izmantojot formulu</span>
+                                        
+                                        <select 
+                                            v-if="form.rules.payment_status === 'apmaksāts'"
+                                            v-model="form.rules.financial_formula"
+                                            class="inline-block border-none bg-transparent hover:bg-gray-100 rounded-md py-0 pl-1 pr-6 font-bold text-emerald-700 focus:ring-0 cursor-pointer transition-colors"
+                                        >
                                             <option value="average_salary">Vidējā izpeļņa</option>
-                                            <option value="base_salary">Pamatalga</option>
-                                            <option value="unpaid">Neapmaksāts</option>
+                                            <option value="base_salary">Pamatalga / Cietā likme</option>
                                         </select>
+                                        <span v-if="form.rules.payment_status === 'apmaksāts'">.</span>
+                                    </div>
+                                    
+                                    <div class="mt-4 pt-4 border-t border-gray-100 flex items-center gap-3 text-[14px] text-gray-600">
+                                        <span>Likuma atsauce grāmatvedībai un atskaitēm:</span>
+                                        <input type="text" v-model="form.rules.law_reference" class="w-48 inline-block border-b border-t-0 border-x-0 border-gray-300 py-0 px-2 h-7 focus:ring-0 focus:border-gray-900 bg-transparent text-sm font-semibold" placeholder="piem. DL 149. pants" />
                                     </div>
                                 </div>
-
-                                <!-- Row 3: Law reference + Shifts working year -->
-                                <div class="grid grid-cols-2 gap-4 pt-4 border-t border-gray-200">
-                                    <div>
-                                        <InputLabel value="Likuma atsauce" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                        <input type="text" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-gray-900 text-sm" v-model="form.rules.law_reference" placeholder="piem. DL 149" />
-                                    </div>
-                                    <div class="pt-7">
-                                        <label class="flex items-center cursor-pointer group">
-                                            <input type="checkbox" class="w-5 h-5 rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500 transition" v-model="form.rules.shifts_working_year" />
-                                            <span class="ml-3 text-sm font-semibold text-gray-900 group-hover:text-indigo-600 transition">Pārceļ darba gadu (>28 d.)</span>
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- EXPIRATION / ANULĒŠANA -->
-                            <div class="p-5 bg-amber-50 border border-amber-100 rounded-xl space-y-4">
-                                <h3 class="text-sm font-bold text-amber-800 uppercase tracking-wider">⏰ Anulēšanas noteikumi</h3>
-                                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    <div>
-                                        <InputLabel value="Pārnešana (gadi)" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                        <input type="number" step="1" min="0" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-amber-500 focus:ring-amber-500 text-gray-900 text-sm" v-model.number="form.rules.carry_over_years" placeholder="—" />
-                                        <p class="text-[10px] text-gray-400 mt-1">Cik gadus var pārnest</p>
-                                    </div>
-                                    <div>
-                                        <InputLabel value="Termiņš (mēneši)" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                        <input type="number" step="1" min="0" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-amber-500 focus:ring-amber-500 text-gray-900 text-sm" v-model.number="form.rules.usage_deadline_months" placeholder="—" />
-                                        <p class="text-[10px] text-gray-400 mt-1">Pēc notikuma, mēnešos</p>
-                                    </div>
-                                    <div>
-                                        <InputLabel value="Termiņš (dienas)" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                        <input type="number" step="1" min="0" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-amber-500 focus:ring-amber-500 text-gray-900 text-sm" v-model.number="form.rules.usage_deadline_days" placeholder="—" />
-                                        <p class="text-[10px] text-gray-400 mt-1">Pēc notikuma, dienās</p>
-                                    </div>
-                                    <div class="pt-7">
-                                        <label class="flex items-center cursor-pointer group">
-                                            <input type="checkbox" class="w-4 h-4 rounded border-gray-300 text-amber-600 shadow-sm focus:ring-amber-500 transition" v-model="form.rules.expires_end_of_period" />
-                                            <span class="ml-2 text-sm font-medium text-gray-700">Anulējas perioda beigās</span>
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- PER-EVENT SETTINGS (only shown when per_event) -->
-                            <div v-if="form.rules.accrual_method === 'per_event'" class="p-5 bg-blue-50 border border-blue-100 rounded-xl space-y-4">
-                                <h3 class="text-sm font-bold text-blue-800 uppercase tracking-wider">📄 Notikuma iestatījumi</h3>
-                                <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                    <div>
-                                        <InputLabel value="Dokumenta tips" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                        <select v-model="form.rules.event_source" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-900 text-sm">
-                                            <option :value="null">— Nav —</option>
-                                            <option value="child_registration">Bērna reģistrācija</option>
-                                            <option value="donor_day">Donora diena</option>
-                                            <option value="maternity">Grūtniecības dokuments</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <InputLabel value="Dienas par notikumu" class="mb-1.5 text-gray-700 font-medium text-sm" />
-                                        <input type="number" step="1" min="1" class="block w-full border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 text-gray-900 text-sm" v-model.number="form.rules.event_days" placeholder="1" />
-                                    </div>
-                                    <div class="pt-7">
-                                        <label class="flex items-center cursor-pointer group">
-                                            <input type="checkbox" class="w-4 h-4 rounded border-gray-300 text-blue-600 shadow-sm focus:ring-blue-500 transition" v-model="form.rules.requires_hire_date_check" />
-                                            <span class="ml-2 text-sm font-medium text-gray-700">Pārbaudīt pieņ. datumu</span>
-                                        </label>
-                                    </div>
-                                </div>
+                                
                             </div>
 
                             <div class="mt-8 bg-gray-900 rounded-xl overflow-hidden shadow-inner">
