@@ -44,11 +44,16 @@ const openEdit = (config) => {
     form.is_accruable = Boolean(config.is_accruable);
     form.norm_days = config.norm_days;
     
-    let parsedRules = typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules;
-    form.rules = parsedRules || {
+    let parsedRules = typeof config.rules === 'string' ? JSON.parse(config.rules) : (config.rules || {});
+    form.rules = {
         measure_unit: 'DD',
         financial_formula: 'unpaid',
         shifts_working_year: false,
+        accrual_method: 'on_request',
+        period_type: 'working_year',
+        payment_status: 'neapmaksāts',
+        law_reference: '',
+        ...parsedRules
     };
     isModalOpen.value = true;
 };
@@ -101,6 +106,13 @@ const getPeriodLabel = (periodType) => {
     return periodType || '—';
 };
 
+const getPaymentLabel = (status) => {
+    if (status === 'apmaksāts') return 'Apmaksāts';
+    if (status === 'neapmaksāts') return 'Neapmaksāts';
+    if (status === 'VSAA') return 'VSAA';
+    return '—';
+};
+
 const getLawColor = (lawRef) => {
     if (!lawRef) return '#6b7280';
     if (lawRef.includes('149')) return '#2563eb';
@@ -144,6 +156,7 @@ const getLawColor = (lawRef) => {
                                     <th scope="col" class="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 tracking-wider w-8 text-center uppercase">#</th>
                                     <th scope="col" class="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 tracking-wider uppercase">Nosaukums</th>
                                     <th scope="col" class="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-20">Likums</th>
+                                    <th scope="col" class="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-20">Apmaksa</th>
                                     <th scope="col" class="px-2 py-2 text-center text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-12">Uzkr.</th>
                                     <th scope="col" class="px-2 py-2 text-center text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-14">Norma</th>
                                     <th scope="col" class="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-24">Formula</th>
@@ -165,6 +178,11 @@ const getLawColor = (lawRef) => {
                                     <td class="px-2 py-3 whitespace-nowrap">
                                         <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold text-white" :style="{ backgroundColor: getLawColor(getRules(config)?.law_reference) }">
                                             {{ getRules(config)?.law_reference || '—' }}
+                                        </span>
+                                    </td>
+                                    <td class="px-2 py-3 whitespace-nowrap">
+                                        <span class="text-xs text-gray-700 font-medium" :class="getRules(config)?.payment_status === 'neapmaksāts' ? 'text-gray-400' : ''">
+                                            {{ getPaymentLabel(getRules(config)?.payment_status) }}
                                         </span>
                                     </td>
                                     <td class="px-2 py-3 whitespace-nowrap text-center text-xs">
