@@ -356,12 +356,23 @@ const getLawColor = (lawRef) => {
                                             <input type="checkbox" v-model="form.rules.requires_hire_date_check" class="w-4 h-4 mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                                             Pārbaudīt pieņemšanas datumu
                                         </label>
+                                        
+                                        <div class="w-full mt-2 pt-2 border-t border-dashed border-gray-200">
+                                            <span>Šīs dienas</span>
+                                            <select v-model="form.rules.add_to_annual_immediately" class="inline-block border-none bg-transparent hover:bg-gray-100 rounded-md py-0 pl-1 pr-6 font-bold text-blue-700 focus:ring-0 text-sm cursor-pointer transition-colors mx-1">
+                                                <option :value="false">veidz savu atsevišķu uzkrājumu</option>
+                                                <option :value="true">tiek automātiski pieskaitītas ikgadējam atvaļinājumam</option>
+                                            </select>
+                                        </div>
                                     </div>
                                 </div>
 
                                 <!-- Sentence 2: Expiration -->
                                 <div class="p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
-                                    <div class="flex flex-wrap items-baseline gap-2 text-gray-800 text-[15px] leading-8">
+                                    <div v-if="form.rules.add_to_annual_immediately" class="text-gray-500 italic text-[15px] leading-8">
+                                        ℹ️ Šīs dienas saplūdīs ar ikgadējo atvaļinājumu, tāpēc uz tām pa tiešo attieksies ikgadējā atvaļinājuma noilguma noteikumi.
+                                    </div>
+                                    <div v-else class="flex flex-wrap items-baseline gap-2 text-gray-800 text-[15px] leading-8">
                                         <span>Neizmantotās dienas</span>
                                         <select 
                                             :value="getExpirationMode()"
@@ -391,9 +402,6 @@ const getLawColor = (lawRef) => {
                                         </template>
                                         
                                         <template v-else-if="getExpirationMode() === 'end_of_period'">
-                                            <span>.</span>
-                                        </template>
-                                        <template v-else>
                                             <span>.</span>
                                         </template>
                                     </div>

@@ -549,12 +549,15 @@ class LeaveAccrualService
         $requiresHireDateCheck = $rules['requires_hire_date_check'] ?? false;
         $usageDeadlineDays = $rules['usage_deadline_days'] ?? null;
         $usageDeadlineMonths = $rules['usage_deadline_months'] ?? null;
+        $addToAnnualImmediately = $rules['add_to_annual_immediately'] ?? false;
 
         $algorithm[] = "📋 **{$config->name}** ({$lawRef})";
         $algorithm[] = "Metode: piešķir pēc notikuma (dokumenta)";
         $algorithm[] = "Dienas par notikumu: {$eventDays} DD";
 
-        if ($usageDeadlineDays) {
+        if ($addToAnnualImmediately) {
+            $algorithm[] = "🔄 Nolikums: Šīs dienas tiek automātiski pieskaitītas ikgadējam atvaļinājumam.";
+        } elseif ($usageDeadlineDays) {
             $algorithm[] = "⚠️ Termiņš: {$usageDeadlineDays} dienas. Nekopjas.";
         } elseif ($usageDeadlineMonths) {
             $algorithm[] = "⚠️ Jāizmanto {$usageDeadlineMonths} mēnešu laikā.";
@@ -603,16 +606,43 @@ class LeaveAccrualService
             $isExpired = $referenceDate->gt($deadline);
             $statusLabel = $isExpired ? " ⏰ NOILDZIS" : " ✅ Aktīvs";
 
-            $transactions[] = [
-                'transaction_type' => 'accrual',
-                'period_from' => $eventDate->toDateString(),
-                'period_to' => $deadline->toDateString(),
-                'days_dd' => $eventDays,
-                'remaining_dd' => $eventDays,
-                'document_id' => $doc->id,
-                'description' => "{$config->name}: {$eventDays} DD (notikums " . $eventDate->format('d.m.Y') . ", termiņš līdz " . $deadline->format('d.m.Y') . ")" . $statusLabel,
-            ];
-            $algorithm[] = "Notikums " . $eventDate->format('d.m.Y') . " → {$eventDays} DD, termiņš: " . $deadline->format('d.m.Y') . $statusLabel;
+            if ($addToAnnualImmediately) {
+                // Instantly transfer this out to tip 1 (Ikgadējais)
+                $transactions[] = [
+                    'transaction_type' => 'transferred_out',
+                    'period_from' => $eventDate->toDateString(),
+                    'period_to' => $eventDate->toDateString(),
+                    'days_dd' => 0, // Out transactions don't add to balance directly
+                    'remaining_dd' => 0,
+                    'document_id' => $doc->id,
+                    'description' => "🔄 Pievienots ikgadējam: {$eventDays} DD (notikums " . $eventDate->format('d.m.Y') . ")",
+                ];
+                
+                // Inject the 'transferred_in' transaction for Tip=1
+                $transactions[] = [
+                    'transaction_type' => 'transferred_in',
+                    'target_tip' => 1,
+                    'period_from' => $eventDate->toDateString(),
+                    'period_to' => $eventDate->toDateString(),
+                    'days_dd' => $eventDays,
+                    'remaining_dd' => $eventDays,
+                    'document_id' => $doc->id,
+                    'description' => "🔄 Pārnests no " . $config->name . " (notikums " . $eventDate->format('d.m.Y') . ")",
+                ];
+
+                $algorithm[] = "Notikums " . $eventDate->format('d.m.Y') . " → {$eventDays} DD (Automātiski pievienots ikgadējam atvaļinājumam)";
+            } else {
+                $transactions[] = [
+                    'transaction_type' => 'accrual',
+                    'period_from' => $eventDate->toDateString(),
+                    'period_to' => $deadline->toDateString(),
+                    'days_dd' => $eventDays,
+                    'remaining_dd' => $eventDays,
+                    'document_id' => $doc->id,
+                    'description' => "{$config->name}: {$eventDays} DD (notikums " . $eventDate->format('d.m.Y') . ", termiņš līdz " . $deadline->format('d.m.Y') . ")" . $statusLabel,
+                ];
+                $algorithm[] = "Notikums " . $eventDate->format('d.m.Y') . " → {$eventDays} DD, termiņš: " . $deadline->format('d.m.Y') . $statusLabel;
+            }
         }
 
         return [$transactions, $algorithm];
