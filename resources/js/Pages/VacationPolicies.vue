@@ -96,6 +96,16 @@ const getFormulaLabel = (formula) => {
     return formula || '—';
 };
 
+const getRules = (config) => {
+    return typeof config.rules === 'string' ? JSON.parse(config.rules) : (config.rules ?? {});
+};
+
+const getPeriodLabel = (periodType) => {
+    if (periodType === 'working_year') return 'darba gads';
+    if (periodType === 'calendar_year') return 'kal. gads';
+    return periodType || '—';
+};
+
 const getLawColor = (lawRef) => {
     if (!lawRef) return '#6b7280';
     if (lawRef.includes('149')) return '#2563eb';
@@ -142,7 +152,7 @@ const getLawColor = (lawRef) => {
                                     <th scope="col" class="px-2 py-2 text-center text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-12">Uzkr.</th>
                                     <th scope="col" class="px-2 py-2 text-center text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-14">Norma</th>
                                     <th scope="col" class="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-24">Formula</th>
-                                    <th scope="col" class="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-24">Termiņš</th>
+                                    <th scope="col" class="px-2 py-2 text-left text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-28">Anulēšana</th>
                                     <th scope="col" class="px-2 py-2 text-right text-[11px] font-semibold text-gray-500 tracking-wider uppercase w-20">Darbības</th>
                                 </tr>
                             </thead>
@@ -158,8 +168,8 @@ const getLawColor = (lawRef) => {
                                         </div>
                                     </td>
                                     <td class="px-2 py-3 whitespace-nowrap">
-                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold text-white" :style="{ backgroundColor: getLawColor((typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.law_reference) }">
-                                            {{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.law_reference || '—' }}
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold text-white" :style="{ backgroundColor: getLawColor(getRules(config)?.law_reference) }">
+                                            {{ getRules(config)?.law_reference || '—' }}
                                         </span>
                                     </td>
                                     <td class="px-2 py-3 whitespace-nowrap text-center text-xs">
@@ -170,26 +180,29 @@ const getLawColor = (lawRef) => {
                                         {{ config.is_accruable ? config.norm_days : '—' }}
                                     </td>
                                     <td class="px-2 py-3 whitespace-nowrap">
-                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-bold" :class="getFormulaBadgeClass((typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.financial_formula)">
-                                            {{ getFormulaLabel((typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.financial_formula) }}
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-bold" :class="getFormulaBadgeClass(getRules(config)?.financial_formula)">
+                                            {{ getFormulaLabel(getRules(config)?.financial_formula) }}
                                         </span>
                                     </td>
-                                    <td class="px-2 py-3 whitespace-nowrap text-[11px] text-gray-600">
-                                        <template v-if="(typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.carry_over_years">
-                                            <span class="text-blue-600 font-medium">{{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.carry_over_years }}g. pārn.</span>
-                                        </template>
-                                        <template v-else-if="(typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.expires_end_of_period">
-                                            <span class="text-amber-600 font-medium">Per. beigās</span>
-                                        </template>
-                                        <template v-else-if="(typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.usage_deadline_months">
-                                            <span class="text-red-600 font-medium">{{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.usage_deadline_months }} mēn.</span>
-                                        </template>
-                                        <template v-else-if="(typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.usage_deadline_days">
-                                            <span class="text-red-600 font-medium">{{ (typeof config.rules === 'string' ? JSON.parse(config.rules) : config.rules)?.usage_deadline_days }}d.</span>
-                                        </template>
-                                        <template v-else>
-                                            <span class="text-gray-400">—</span>
-                                        </template>
+                                    <td class="px-2 py-3 text-[11px] text-gray-600">
+                                        <div class="flex flex-col gap-0.5">
+                                            <span class="text-gray-400">{{ getPeriodLabel(getRules(config)?.period_type) }}</span>
+                                            <template v-if="getRules(config)?.carry_over_years">
+                                                <span class="text-blue-600 font-medium">{{ getRules(config)?.carry_over_years }}g. pārnešana</span>
+                                            </template>
+                                            <template v-else-if="getRules(config)?.expires_end_of_period">
+                                                <span class="text-amber-600 font-medium">Per. beigās</span>
+                                            </template>
+                                            <template v-else-if="getRules(config)?.usage_deadline_months">
+                                                <span class="text-red-600 font-medium">{{ getRules(config)?.usage_deadline_months }} mēn.</span>
+                                            </template>
+                                            <template v-else-if="getRules(config)?.usage_deadline_days">
+                                                <span class="text-red-600 font-medium">{{ getRules(config)?.usage_deadline_days }} d.</span>
+                                            </template>
+                                            <template v-else>
+                                                <span class="text-gray-400">—</span>
+                                            </template>
+                                        </div>
                                     </td>
                                     <td class="px-2 py-3 whitespace-nowrap text-right text-xs space-x-1">
                                         <button @click="openEdit(config)" class="inline-flex items-center px-1.5 py-0.5 border border-blue-200 text-blue-600 rounded text-[10px] font-medium hover:bg-blue-50 transition">✏️</button>

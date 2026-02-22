@@ -199,11 +199,9 @@ const ikgadejaisBalance = computed(() => {
                     </thead>
                     <tbody>
                         <template v-for="row in balanceTable" :key="row.config_id">
-                            <tr class="balance-row" :class="{ 'row-has-balance': row.balance_dd > 0, 'row-expanded': expandedRows[row.config_id] }">
+                            <tr class="balance-row" @click="toggleRow(row.config_id)" :class="{ 'row-has-balance': row.balance_dd > 0, 'row-expanded': expandedRows[row.config_id] }">
                                 <td class="col-type">
-                                    <button class="expand-btn" @click="toggleRow(row.config_id)">
-                                        {{ expandedRows[row.config_id] ? '▼' : '▶' }}
-                                    </button>
+                                    <span class="expand-icon">{{ expandedRows[row.config_id] ? '▼' : '▶' }}</span>
                                     <span class="type-name">{{ row.config_name }}</span>
                                 </td>
                                 <td class="col-law">
@@ -227,7 +225,7 @@ const ikgadejaisBalance = computed(() => {
                                 </td>
                                 <td class="col-num">{{ row.balance_kd !== 0 ? row.balance_kd.toFixed(2) : '—' }}</td>
                                 <td class="col-actions">
-                                    <button class="algo-btn" @click="toggleAlgorithm(row.config_id)" title="Skatīt algoritmu">
+                                    <button class="algo-btn" @click.stop="toggleAlgorithm(row.config_id)" title="Skatīt algoritmu">
                                         🔬
                                     </button>
                                 </td>
@@ -469,7 +467,8 @@ const ikgadejaisBalance = computed(() => {
 .accrued { color: #2563eb; }
 .used { color: #dc2626; }
 .expired { color: #d97706; }
-.expand-btn { background: none; border: none; cursor: pointer; font-size: 0.7rem; color: #94a3b8; padding: 0 6px 0 0; }
+.expand-icon { font-size: 0.7rem; color: #94a3b8; padding: 0 6px 0 0; }
+.balance-row { cursor: pointer; }
 .type-name { font-weight: 500; }
 .law-badge {
     display: inline-block; padding: 2px 8px; border-radius: 12px;
