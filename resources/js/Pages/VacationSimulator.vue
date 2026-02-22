@@ -128,7 +128,7 @@ function getLawBadgeColor(lawRef) {
 
 function getPaymentBadge(status) {
     switch (status) {
-        case 'apmaksāts': return { label: 'Apmaksāts', color: '#059669', bg: '#dcfce7' };
+        case 'apmaksāts': return { label: 'Uzņēmums', color: '#059669', bg: '#dcfce7' };
         case 'neapmaksāts': return { label: 'Neapmaksāts', color: '#dc2626', bg: '#fef2f2' };
         case 'VSAA': return { label: 'VSAA', color: '#7c3aed', bg: '#f5f3ff' };
         default: return { label: status, color: '#6b7280', bg: '#f9fafb' };
