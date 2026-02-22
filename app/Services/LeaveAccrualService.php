@@ -373,7 +373,35 @@ class LeaveAccrualService
             $algorithm[] = "Neuzkrāj (atvaļ. periodi ar darba gada nobīdi): -" . round($neuzkraj, 2) . " DD";
         }
 
-        $algorithm[] = "**Kopā uzkrāts: " . round($earnedDD, 2) . " DD**";
+        // ----- BEGIN ADD TRANSFERS IN -----
+        $transferredInTransactions = \App\Models\LeaveTransaction::where('employee_id', $employee->id)
+            ->where('target_tip', $config->tip)
+            ->where('transaction_type', 'transferred_in')
+            ->where('period_to', '<=', $referenceDate)
+            ->get();
+
+        $transferredInTotal = 0.0;
+        foreach ($transferredInTransactions as $tIn) {
+            $transferredInTotal += (float) $tIn->days_dd;
+            
+            // We append these as virtual transactions for the current tip
+            $transactions[] = [
+                'transaction_type' => 'transferred_in',
+                'period_from' => Carbon::parse($tIn->period_from)->toDateString(),
+                'period_to' => Carbon::parse($tIn->period_to)->toDateString(),
+                'days_dd' => round($tIn->days_dd, 5),
+                'remaining_dd' => round($tIn->days_dd, 5),
+                'document_id' => $tIn->document_id,
+                'description' => "🔄 Pievienots no cita veida: " . round($tIn->days_dd, 2) . " DD (" . Carbon::parse($tIn->period_from)->format('d.m.Y') . ")",
+            ];
+        }
+
+        if ($transferredInTotal > 0) {
+            $earnedDD = round($earnedDD + $transferredInTotal, 5);
+            $algorithm[] = "🔄 Pārnesti no citiem atvaļinājumiem: +" . round($transferredInTotal, 2) . " DD";
+            $algorithm[] = "**Galējais kopā uzkrāts: " . round($earnedDD, 2) . " DD**";
+        }
+        // ----- END ADD TRANSFERS IN -----
 
         if (isset($rules['carry_over_years'])) {
             $algorithm[] = "📅 Pārnešana: max " . $rules['carry_over_years'] . " gads";
