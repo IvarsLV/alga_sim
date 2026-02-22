@@ -59,7 +59,7 @@ class DatabaseSeeder extends Seeder
                 'norm_days' => 0,
                 'rules' => json_encode([
                     'measure_unit' => 'DD',
-                    'accrual_method' => 'per_event',
+                    'accrual_method' => 'on_request',
                     'accrual_start' => 'from_document',
                     'period_type' => 'working_year',
                     'shifts_working_year' => true,
@@ -98,7 +98,7 @@ class DatabaseSeeder extends Seeder
                 'norm_days' => 0,
                 'rules' => json_encode([
                     'measure_unit' => 'DD',
-                    'accrual_method' => 'per_request',
+                    'accrual_method' => 'on_request',
                     'accrual_start' => 'immediate',
                     'period_type' => 'working_year',
                     'shifts_working_year' => true,
@@ -122,6 +122,7 @@ class DatabaseSeeder extends Seeder
                     'period_type' => 'calendar_year',
                     'shifts_working_year' => false,
                     'expires_end_of_period' => true,
+                    'child_based' => true,
                     'payment_status' => 'apmaksāts',
                     'financial_formula' => 'average_salary',
                     'law_reference' => 'DL 150-151',
@@ -136,7 +137,7 @@ class DatabaseSeeder extends Seeder
                 'norm_days' => 0,
                 'rules' => json_encode([
                     'measure_unit' => 'KD',
-                    'accrual_method' => 'per_event',
+                    'accrual_method' => 'on_request',
                     'accrual_start' => 'from_document',
                     'period_type' => 'working_year',
                     'shifts_working_year' => false,
@@ -155,6 +156,9 @@ class DatabaseSeeder extends Seeder
                 'rules' => json_encode([
                     'measure_unit' => 'DD',
                     'accrual_method' => 'per_event',
+                    'event_source' => 'child_registration',
+                    'event_days' => 10,
+                    'requires_hire_date_check' => true,
                     'accrual_start' => 'from_document',
                     'period_type' => 'working_year',
                     'shifts_working_year' => false,
@@ -174,6 +178,8 @@ class DatabaseSeeder extends Seeder
                 'rules' => json_encode([
                     'measure_unit' => 'DD',
                     'accrual_method' => 'per_event',
+                    'event_source' => 'donor_day',
+                    'event_days' => 1,
                     'accrual_start' => 'from_document',
                     'period_type' => 'calendar_year',
                     'shifts_working_year' => false,
@@ -193,7 +199,7 @@ class DatabaseSeeder extends Seeder
                 'norm_days' => 0,
                 'rules' => json_encode([
                     'measure_unit' => 'DD',
-                    'accrual_method' => 'per_request',
+                    'accrual_method' => 'on_request',
                     'accrual_start' => 'immediate',
                     'period_type' => 'calendar_year',
                     'shifts_working_year' => false,
