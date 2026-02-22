@@ -28,9 +28,14 @@ class SimulatorController extends Controller
         // Build balance table for frontend
         $balanceTable = [];
         foreach ($leaveData as $configId => $data) {
-            $rules = is_string($data['config']->rules) 
-                ? json_decode($data['config']->rules, true) 
-                : ($data['config']->rules ?? []);
+            $rules = $data['config']->rules;
+            while (is_string($rules)) {
+                $decoded = json_decode($rules, true);
+                if (json_last_error() !== JSON_ERROR_NONE) break;
+                if ($rules === $decoded) break;
+                $rules = $decoded;
+            }
+            $rules = is_array($rules) ? $rules : [];
             
             $balanceTable[] = [
                 'config_id' => $configId,

@@ -47,7 +47,14 @@ class LeaveAccrualService
      */
     protected function calculateForType(Employee $employee, VacationConfig $config, Carbon $baseDate, Carbon $referenceDate): array
     {
-        $rules = is_string($config->rules) ? json_decode($config->rules, true) : ($config->rules ?? []);
+        $rules = $config->rules;
+        while (is_string($rules)) {
+            $decoded = json_decode($rules, true);
+            if (json_last_error() !== JSON_ERROR_NONE) break;
+            if ($rules === $decoded) break;
+            $rules = $decoded;
+        }
+        $rules = is_array($rules) ? $rules : [];
 
         $transactions = [];
         $algorithm = [];
@@ -671,7 +678,14 @@ class LeaveAccrualService
             $config = VacationConfig::find($configId);
             if (!$config) continue;
 
-            $rules = is_string($config->rules) ? json_decode($config->rules, true) : ($config->rules ?? []);
+        $rules = $config->rules;
+        while (is_string($rules)) {
+            $decoded = json_decode($rules, true);
+            if (json_last_error() !== JSON_ERROR_NONE) break;
+            if ($rules === $decoded) break;
+            $rules = $decoded;
+        }
+        $rules = is_array($rules) ? $rules : [];
             if (!($rules['shifts_working_year'] ?? false)) continue;
 
             $start = Carbon::parse($doc->date_from);
@@ -700,7 +714,14 @@ class LeaveAccrualService
                 if (!$configId) return false;
                 $config = VacationConfig::find($configId);
                 if (!$config) return false;
-                $rules = is_string($config->rules) ? json_decode($config->rules, true) : ($config->rules ?? []);
+                $rules = $config->rules;
+                while (is_string($rules)) {
+                    $decoded = json_decode($rules, true);
+                    if (json_last_error() !== JSON_ERROR_NONE) break;
+                    if ($rules === $decoded) break;
+                    $rules = $decoded;
+                }
+                $rules = is_array($rules) ? $rules : [];
                 return $rules['shifts_working_year'] ?? false;
             });
 
