@@ -79,14 +79,16 @@ class LeaveAccrualService
 
         // Dispatch on accrual_method from rules
         $accrualMethod = $rules['accrual_method'] ?? 'on_request';
-
-        [$transactions, $algo] = match ($accrualMethod) {
+        $accrualResults = match ($accrualMethod) {
             'monthly'    => $this->accrueMonthly($employee, $config, $baseDate, $referenceDate, $rules),
             'yearly'     => $this->accrueYearly($employee, $config, $baseDate, $referenceDate, $rules),
             'per_event'  => $this->accruePerEvent($employee, $config, $baseDate, $referenceDate, $rules),
             'on_request' => $this->accrueOnRequest($employee, $config, $baseDate, $referenceDate, $rules),
             default      => [[], ["Nav definēts algoritms metodei: {$accrualMethod}"]],
         };
+        
+        $transactions = $accrualResults[0] ?? [];
+        $algo = $accrualResults[1] ?? [];
         $algorithm = array_merge($algorithm, $algo);
 
         // Process usage (consumption) for this type
