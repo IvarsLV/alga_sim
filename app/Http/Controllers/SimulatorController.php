@@ -28,6 +28,10 @@ class SimulatorController extends Controller
         // Build balance table for frontend
         $balanceTable = [];
         foreach ($leaveData as $configId => $data) {
+            $rules = is_string($data['config']->rules) 
+                ? json_decode($data['config']->rules, true) 
+                : ($data['config']->rules ?? []);
+            
             $balanceTable[] = [
                 'config_id' => $configId,
                 'config_name' => $data['config']->name,
@@ -40,10 +44,8 @@ class SimulatorController extends Controller
                 'balance_kd' => $data['balance_kd'],
                 'transactions' => $data['transactions'],
                 'algorithm' => $data['algorithm'],
-                'payment_status' => $data['payment_status'] ?? 'apmaksāts',
-                'rules' => is_string($data['config']->rules) 
-                    ? json_decode($data['config']->rules, true) 
-                    : ($data['config']->rules ?? []),
+                'payment_status' => $rules['payment_status'] ?? 'apmaksāts',
+                'rules' => $rules,
             ];
         }
 
