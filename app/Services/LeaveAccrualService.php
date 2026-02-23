@@ -186,8 +186,17 @@ class LeaveAccrualService
             $reason = '';
             $periodEnd = Carbon::parse($t['period_to']);
 
+            // Rule 0: Hard deadline for transferred_in bonus days (e.g. Donor Days)
+            // They carry their exact expiration date in their 'period_to' field
+            if ($t['transaction_type'] === 'transferred_in') {
+                if ($referenceDate->gt($periodEnd)) {
+                    $expired = true;
+                    $reason = "Pārnešanas termiņš (1 gads) beidzies";
+                }
+            }
+
             // Rule 1: carry_over_years — period older than N years expires
-            if ($carryOverYears !== null) {
+            if (!$expired && $carryOverYears !== null) {
                 $expiryDate = $periodEnd->copy()->addYears($carryOverYears);
                 if ($referenceDate->gt($expiryDate)) {
                     $expired = true;
@@ -449,7 +458,7 @@ class LeaveAccrualService
             $transactions[] = [
                 'transaction_type' => 'transferred_in',
                 'period_from' => $eventDate->toDateString(),
-                'period_to' => $eventDate->toDateString(), // Sets base date for expiration. With carry_over_years = 1, it expires exactly in 1 year
+                'period_to' => $eventDate->copy()->addYear()->toDateString(), // Expires exactly 1 year from the event
                 'days_dd' => 1.0,
                 'remaining_dd' => 1.0,
                 'document_id' => $doc->id,
