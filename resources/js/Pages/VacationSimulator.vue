@@ -284,15 +284,20 @@ const ikgadejaisBalance = computed(() => {
                                                     :class="{ 'tx-accrual': t.transaction_type === 'accrual', 'tx-usage': t.transaction_type === 'usage', 'tx-expiration': t.transaction_type === 'expiration' }">
                                                     <td>{{ formatDate(t.period_from) }} — {{ formatDate(t.period_to) }}</td>
                                                     <td>
-                                                        <span :class="'tx-badge tx-' + t.transaction_type">
-                                                            {{ t.transaction_type === 'accrual' ? 'Uzkrājums' : t.transaction_type === 'usage' ? 'Izmantots' : '⏰ Noilgums' }}
+                                                        <span :class="'tx-badge tx-' + t.transaction_type" 
+                                                              :style="t.transaction_type === 'transferred_in' ? 'background: #eef2ff; color: #4f46e5;' : t.transaction_type === 'transferred_out' ? 'background: #fdf2f8; color: #db2777;' : ''">
+                                                            {{ t.transaction_type === 'accrual' ? 'Uzkrājums' : 
+                                                               t.transaction_type === 'usage' ? 'Izmantots' : 
+                                                               t.transaction_type === 'transferred_in' ? 'Pievienots' :
+                                                               t.transaction_type === 'transferred_out' ? 'Pārnests projām' :
+                                                               '⏰ Noilgums' }}
                                                         </span>
                                                     </td>
                                                     <td class="desc-cell">{{ t.description }}</td>
-                                                    <td class="col-num" :class="{ accrued: t.transaction_type === 'accrual', used: t.transaction_type === 'usage', expired: t.transaction_type === 'expiration' }">
-                                                        {{ t.transaction_type === 'accrual' ? '+' + Number(t.days_dd).toFixed(2) : '-' + Math.abs(t.days_dd).toFixed(2) }}
+                                                    <td class="col-num" :class="{ accrued: ['accrual', 'transferred_in'].includes(t.transaction_type), used: ['usage', 'transferred_out'].includes(t.transaction_type), expired: t.transaction_type === 'expiration' }">
+                                                        {{ ['accrual', 'transferred_in'].includes(t.transaction_type) ? '+' + Number(t.days_dd).toFixed(2) : '-' + Math.abs(t.days_dd).toFixed(2) }}
                                                     </td>
-                                                    <td class="col-num remaining-cell" v-if="t.transaction_type === 'accrual'">
+                                                    <td class="col-num remaining-cell" v-if="['accrual', 'transferred_in'].includes(t.transaction_type)">
                                                         <span v-if="Number(t.remaining_dd) < Number(t.days_dd)" class="remaining-consumed">
                                                             {{ Number(t.remaining_dd).toFixed(2) }}
                                                             <small>(izlietots {{ (Number(t.days_dd) - Number(t.remaining_dd)).toFixed(2) }})</small>
