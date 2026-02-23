@@ -23,7 +23,12 @@ const form = useForm({
     date_from: '',
     date_to: '',
     days: null,
-    payload: {},
+    payload: {
+        child_dob: '',
+        is_disabled: false,
+        donor_action: 'add_to_annual',
+        is_unpaid: false
+    },
     vacation_config_id: null,
 });
 
@@ -42,8 +47,11 @@ const docTypes = [
 ];
 
 const isVacationType = computed(() =>
-    ['vacation', 'unpaid_leave', 'study_leave', 'donor_day'].includes(form.type)
+    ['vacation', 'unpaid_leave', 'study_leave'].includes(form.type)
 );
+
+const isDonorDay = computed(() => form.type === 'donor_day');
+const isStudyLeave = computed(() => form.type === 'study_leave');
 
 // ─── Methods ───
 function toggleRow(configId) {
@@ -96,6 +104,30 @@ function editDoc(doc) {
 }
 
 function saveDoc() {
+    // Inject logic before saving
+    if (form.type === 'donor_day') {
+        // Find Donor Day Config id automatically
+        const donorConfig = props.vacationConfigs.find(c => c.tip === 10);
+        
+        switch(form.payload.donor_action) {
+            case 'use_now':
+                form.vacation_config_id = donorConfig?.id; // Mark for usage consumption
+                form.payload.add_to_annual_immediately = false;
+                form.date_to = form.date_from; // 1 day off
+                break;
+            case 'add_to_annual':
+                form.vacation_config_id = null; // Do NOT consume usage
+                form.payload.add_to_annual_immediately = true;
+                form.date_to = form.date_from; // 1 day event
+                break;
+            case 'save_for_later':
+                form.vacation_config_id = null; // Do NOT consume usage
+                form.payload.add_to_annual_immediately = false;
+                form.date_to = form.date_from; // 1 day event
+                break;
+        }
+    }
+
     if (editingDoc.value) {
         form.put(route('documents.update', editingDoc.value.id), {
             onSuccess: () => { showDocForm.value = false; editingDoc.value = null; },
@@ -380,7 +412,7 @@ const ikgadejaisBalance = computed(() => {
                             </select>
                         </div>
 
-                        <div v-if="form.type !== 'child_registration'" class="form-row">
+                        <div v-if="['vacation', 'unpaid_leave', 'study_leave'].includes(form.type)" class="form-row">
                             <div class="form-group">
                                 <label>Datums no</label>
                                 <input type="date" v-model="form.date_from" />
@@ -389,6 +421,28 @@ const ikgadejaisBalance = computed(() => {
                                 <label>Datums līdz</label>
                                 <input type="date" v-model="form.date_to" />
                             </div>
+                        </div>
+
+                        <!-- Specialized block for Donor Day -->
+                        <div v-if="isDonorDay" class="form-group">
+                            <label>Notikuma (Asins nodošanas) datums</label>
+                            <input type="date" v-model="form.date_from" />
+                        </div>
+                        
+                        <div v-if="isDonorDay" class="form-group">
+                            <label>Kā izmantot iegūto brīvdienu?</label>
+                            <select v-model="form.payload.donor_action">
+                                <option value="add_to_annual">Pievienot ikgadējam atvaļinājumam (uzreiz)</option>
+                                <option value="use_now">Izmantot uzreiz fiksētajā datumā kā apmaksātu brīvdienu</option>
+                                <option value="save_for_later">Pietaupīt (paliek atsevišķā donora dienu bilancē izmantošanai vēlāk)</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Specialized checkboxes for Study Leave -->
+                        <div v-if="isStudyLeave" class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" v-model="form.payload.is_unpaid" /> Šis ir NEAPMAKSĀTS mācību atvaļinājums (bez algas saglabāšanas)
+                            </label>
                         </div>
 
                         <div v-if="form.type === 'child_registration'" class="form-group">

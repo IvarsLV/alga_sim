@@ -640,7 +640,9 @@ class LeaveAccrualService
             $isExpired = $referenceDate->gt($deadline);
             $statusLabel = $isExpired ? " ⏰ NOILDZIS" : " ✅ Aktīvs";
 
-            if ($addToAnnualImmediately) {
+            $docAddToAnnual = isset($payload['add_to_annual_immediately']) ? $payload['add_to_annual_immediately'] : $addToAnnualImmediately;
+
+            if ($docAddToAnnual) {
                 // Instantly transfer this out to tip 1 (Ikgadējais)
                 $transactions[] = [
                     'transaction_type' => 'transferred_out',
@@ -743,6 +745,8 @@ class LeaveAccrualService
 
             $kd = $start->diffInDays($end) + 1;
 
+            $isUnpaid = !empty($payload['is_unpaid']) ? ' (Neapmaksāts)' : '';
+
             $usageTransactions[] = [
                 'transaction_type' => 'usage',
                 'period_from' => $start->toDateString(),
@@ -750,7 +754,7 @@ class LeaveAccrualService
                 'days_dd' => -$dd,
                 'remaining_dd' => 0,
                 'document_id' => $doc->id,
-                'description' => "Izmantots {$dd} DD / {$kd} KD ({$config->name}, " . $start->format('d.m.Y') . " – " . $end->format('d.m.Y') . ")",
+                'description' => "Izmantots {$dd} DD / {$kd} KD ({$config->name}{$isUnpaid}, " . $start->format('d.m.Y') . " – " . $end->format('d.m.Y') . ")",
             ];
         }
 
@@ -789,7 +793,7 @@ class LeaveAccrualService
         $shiftDays = 0;
 
         $shiftingDocs = Document::where('employee_id', $employee->id)
-            ->whereIn('type', ['vacation', 'unpaid_leave'])
+            ->whereIn('type', ['vacation', 'unpaid_leave', 'study_leave'])
             ->get();
 
         foreach ($shiftingDocs as $doc) {
@@ -808,7 +812,11 @@ class LeaveAccrualService
             $rules = $decoded;
         }
         $rules = is_array($rules) ? $rules : [];
-            if (!($rules['shifts_working_year'] ?? false)) continue;
+            
+            $shiftsFromRule = $rules['shifts_working_year'] ?? false;
+            $isUnpaidStudyLeave = ($doc->type === 'study_leave' && !empty($payload['is_unpaid']));
+
+            if (!$shiftsFromRule && !$isUnpaidStudyLeave) continue;
 
             $start = Carbon::parse($doc->date_from);
             $end = Carbon::parse($doc->date_to);
@@ -844,7 +852,11 @@ class LeaveAccrualService
                     $rules = $decoded;
                 }
                 $rules = is_array($rules) ? $rules : [];
-                return $rules['shifts_working_year'] ?? false;
+                
+                $shiftsFromRule = $rules['shifts_working_year'] ?? false;
+                $isUnpaidStudyLeave = ($doc->type === 'study_leave' && !empty($payload['is_unpaid']));
+                
+                return $shiftsFromRule || $isUnpaidStudyLeave;
             });
 
         foreach ($shiftingDocs as $doc) {
