@@ -46,12 +46,18 @@ const docTypes = [
     { value: 'donor_day', label: 'Donora diena' },
 ];
 
-const isVacationType = computed(() =>
-    ['vacation', 'unpaid_leave', 'study_leave'].includes(form.type)
-);
+// Make sure it matches database `vacation_config_id` type since we dropped old string-based document types.
+const isVacationType = computed(() => form.type === 'vacation');
 
-const isDonorDay = computed(() => form.type === 'donor_day');
-const isStudyLeave = computed(() => form.type === 'study_leave');
+// Assuming Tip 10 is Donor, Tip 3 is Study
+const isDonorDay = computed(() => {
+    const vc = props.vacationConfigs.find(c => c.id === form.vacation_config_id);
+    return vc && vc.tip === 10;
+});
+const isStudyLeave = computed(() => {
+    const vc = props.vacationConfigs.find(c => c.id === form.vacation_config_id);
+    return vc && vc.tip === 3;
+});
 
 // ─── Methods ───
 function toggleRow(configId) {
@@ -105,25 +111,19 @@ function editDoc(doc) {
 
 function saveDoc() {
     // Inject logic before saving
-    if (form.type === 'donor_day') {
-        // Find Donor Day Config id automatically
-        const donorConfig = props.vacationConfigs.find(c => c.tip === 10);
-        
+    if (isDonorDay.value) {
         switch(form.payload.donor_action) {
             case 'use_now':
-                form.vacation_config_id = donorConfig?.id; // Mark for usage consumption
                 form.payload.add_to_annual_immediately = false;
-                form.date_to = form.date_from; // 1 day off
+                // User can select date_to freely (e.g. to consume both 2 days)
                 break;
             case 'add_to_annual':
-                form.vacation_config_id = null; // Do NOT consume usage
                 form.payload.add_to_annual_immediately = true;
-                form.date_to = form.date_from; // 1 day event
+                form.date_to = form.date_from; // 1 day event off
                 break;
             case 'save_for_later':
-                form.vacation_config_id = null; // Do NOT consume usage
                 form.payload.add_to_annual_immediately = false;
-                form.date_to = form.date_from; // 1 day event
+                form.date_to = form.date_from; // 1 day event off
                 break;
         }
     }
@@ -400,7 +400,9 @@ const ikgadejaisBalance = computed(() => {
                         <div class="form-group">
                             <label>Dokumenta tips</label>
                             <select v-model="form.type">
-                                <option v-for="dt in docTypes" :key="dt.value" :value="dt.value">{{ dt.label }}</option>
+                                <option value="hire">Pieņemšana darbā</option>
+                                <option value="child_registration">Bērna reģistrācija</option>
+                                <option value="vacation">Prombūtne (Atvaļinājumi, slimošanas u.c.)</option>
                             </select>
                         </div>
 
@@ -412,7 +414,7 @@ const ikgadejaisBalance = computed(() => {
                             </select>
                         </div>
 
-                        <div v-if="['vacation', 'unpaid_leave', 'study_leave'].includes(form.type)" class="form-row">
+                        <div v-if="form.type === 'vacation'" class="form-row">
                             <div class="form-group">
                                 <label>Datums no</label>
                                 <input type="date" v-model="form.date_from" />
