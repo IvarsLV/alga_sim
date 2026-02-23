@@ -602,11 +602,22 @@ class LeaveAccrualService
             return [$transactions, $algorithm];
         }
 
-        $algorithm[] = "Dokumenta tips: {$eventSource}";
+        $algorithm[] = "Notikuma avots: {$eventSource}";
 
-        $docs = Document::where('employee_id', $employee->id)
-            ->where('type', $eventSource)
-            ->get();
+        if ($eventSource === 'child_registration') {
+            $docs = Document::where('employee_id', $employee->id)
+                ->where('type', 'child_registration')
+                ->get();
+        } else {
+            // Find all documents that are linked to this specific Vacation Config
+            // This allows us to use a unified 'vacation' document type on the frontend
+            $docs = Document::where('employee_id', $employee->id)
+                ->get()
+                ->filter(function($doc) use ($config) {
+                    $payload = is_string($doc->payload) ? json_decode($doc->payload, true) : $doc->payload;
+                    return ($payload['vacation_config_id'] ?? null) == $config->id;
+                });
+        }
 
         foreach ($docs as $doc) {
             $payload = is_string($doc->payload) ? json_decode($doc->payload, true) : $doc->payload;
@@ -640,21 +651,42 @@ class LeaveAccrualService
             $isExpired = $referenceDate->gt($deadline);
             $statusLabel = $isExpired ? " ⏰ NOILDZIS" : " ✅ Aktīvs";
 
+            $docDonorAction = $payload['donor_action'] ?? null;
             $docAddToAnnual = isset($payload['add_to_annual_immediately']) ? $payload['add_to_annual_immediately'] : $addToAnnualImmediately;
 
-            if ($docAddToAnnual) {
-                // Instantly transfer this out to tip 1 (Ikgadējais)
+            if ($docDonorAction === 'use_now') {
+                // User chose to use the donor day immediately. 
+                // We accrue 2 days: 1 to cover the day off, 1 as the bonus day.
+                $useNowDays = 2; // Accrue 2, but 'processUsage' will consume 1 automatically because the document is a vacation document.
                 $transactions[] = [
-                    'transaction_type' => 'transferred_out',
+                    'transaction_type' => 'accrual',
                     'period_from' => $eventDate->toDateString(),
-                    'period_to' => $eventDate->toDateString(),
-                    'days_dd' => -$eventDays,
-                    'remaining_dd' => 0,
+                    'period_to' => $deadline->toDateString(),
+                    'days_dd' => $useNowDays,
+                    'remaining_dd' => $useNowDays,
                     'document_id' => $doc->id,
-                    'description' => "🔄 Pievienots ikgadējam: {$eventDays} DD (notikums " . $eventDate->format('d.m.Y') . ")",
+                    'description' => "{$config->name}: {$useNowDays} DD (izmantots uzreiz, notikums " . $eventDate->format('d.m.Y') . ")" . $statusLabel,
                 ];
-                
-                // Inject the 'transferred_in' transaction for Tip=1
+                $algorithm[] = "Notikums " . $eventDate->format('d.m.Y') . " → {$useNowDays} DD (izmantots uzreiz, 1 diena kompensē prombūtni, 1 paliek atlikumā)";
+            } elseif ($docAddToAnnual) {
+                // Instantly transfer 1 out to tip 1 (Ikgadējais), but ALSO accrue 1 to Donor (to cover the day of donation if it was a workday)
+                // Wait, if they just add it to annual, does the day of donation consume a day? Only if they took the day off. 
+                // The law says they get a resting day *after* donation, or added to annual.
+                // If they add to annual, they still took the day to donate blood. 
+                // Let's accrue 1 day for Donor (which usage will consume if it's a weekday), and mint 1 day for Annual.
+
+                // Accrue 1 day to Donor balance (will be consumed by 'usage' if the doc covers the day)
+                $transactions[] = [
+                    'transaction_type' => 'accrual',
+                    'period_from' => $eventDate->toDateString(),
+                    'period_to' => $deadline->toDateString(),
+                    'days_dd' => $eventDays,
+                    'remaining_dd' => $eventDays,
+                    'document_id' => $doc->id,
+                    'description' => "{$config->name}: {$eventDays} DD (notikums " . $eventDate->format('d.m.Y') . ")" . $statusLabel,
+                ];
+
+                // And mint 1 day directly to Ikgadējais (as the bonus day)
                 $transactions[] = [
                     'transaction_type' => 'transferred_in',
                     'target_tip' => 1,
@@ -663,10 +695,10 @@ class LeaveAccrualService
                     'days_dd' => $eventDays,
                     'remaining_dd' => $eventDays,
                     'document_id' => $doc->id,
-                    'description' => "🔄 Pārnests no " . $config->name . " (notikums " . $eventDate->format('d.m.Y') . ")",
+                    'description' => "🔄 Pārnests no " . $config->name . " (papildu asins donora diena " . $eventDate->format('d.m.Y') . ")",
                 ];
 
-                $algorithm[] = "Notikums " . $eventDate->format('d.m.Y') . " → {$eventDays} DD (Automātiski pievienots ikgadējam atvaļinājumam)";
+                $algorithm[] = "Notikums " . $eventDate->format('d.m.Y') . " → 1 DD uzkrāta donora bilancē (izmantošanai šodien), 1 DD automātiski pievienota ikgadējam atvaļinājumam.";
             } else {
                 $transactions[] = [
                     'transaction_type' => 'accrual',

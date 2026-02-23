@@ -402,7 +402,7 @@ const ikgadejaisBalance = computed(() => {
                             <select v-model="form.type">
                                 <option value="hire">Pieņemšana darbā</option>
                                 <option value="child_registration">Bērna reģistrācija</option>
-                                <option value="vacation">Prombūtne (Atvaļinājumi, slimošanas u.c.)</option>
+                                <option value="vacation">Atvaļinājums / Prombūtne</option>
                             </select>
                         </div>
 
