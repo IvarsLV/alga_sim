@@ -428,9 +428,20 @@ class LeaveAccrualService
             });
 
         $transferredInTotal = 0.0;
+        $earnedThisYear = [];
+
         foreach ($bonusDocs as $doc) {
             $eventDate = $doc->date_from ? Carbon::parse($doc->date_from) : null;
             if (!$eventDate) continue;
+
+            $year = $eventDate->year;
+            $earnedThisYear[$year] = ($earnedThisYear[$year] ?? 0) + 1;
+
+            if ($earnedThisYear[$year] > 5) {
+                // Reject limit according to typical interpretation of state coverage limits
+                $algorithm[] = "⚠️ Atteikts donora dienas pārnesums (" . $eventDate->format('d.m.Y') . "): pārsniegts 5 dienu limits gadā!";
+                continue;
+            }
 
             $transferredInTotal += 1.0; // 1 Bonus Day
             
@@ -438,11 +449,11 @@ class LeaveAccrualService
             $transactions[] = [
                 'transaction_type' => 'transferred_in',
                 'period_from' => $eventDate->toDateString(),
-                'period_to' => clone $referenceDate, // Never naturally expires
+                'period_to' => $eventDate->toDateString(), // Sets base date for expiration. With carry_over_years = 1, it expires exactly in 1 year
                 'days_dd' => 1.0,
                 'remaining_dd' => 1.0,
                 'document_id' => $doc->id,
-                'description' => "🔄 Pievienots no Asins donora dienas (notikums " . $eventDate->format('d.m.Y') . ")",
+                'description' => "🔄 Pievienots no Asins donora dienas (notikums " . $eventDate->format('d.m.Y') . ", derīgs 1 gadu)",
             ];
         }
 
