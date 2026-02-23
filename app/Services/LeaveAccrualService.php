@@ -408,13 +408,21 @@ class LeaveAccrualService
         }
 
         // ----- BEGIN ADD TRANSFERS IN -----
+        // Let's find Donor Day config
+        $donorConfig = \App\Models\VacationConfig::where('tip', 10)->first();
+        
         // Let's find any documents (like Donor Days) that have 'donor_action' === 'add_to_annual'
         // or 'add_to_annual_immediately' === true
         $bonusDocs = \App\Models\Document::where('employee_id', $employee->id)
             ->whereNotNull('payload')
             ->get()
-            ->filter(function($doc) {
+            ->filter(function($doc) use ($donorConfig) {
                 $payload = is_string($doc->payload) ? json_decode($doc->payload, true) : $doc->payload;
+                
+                // Must belong to Donor Day config to give this bonus
+                $docConfigId = $payload['vacation_config_id'] ?? null;
+                if ($donorConfig && $docConfigId != $donorConfig->id) return false;
+
                 return ($payload['donor_action'] ?? null) === 'add_to_annual' || 
                        ($payload['add_to_annual_immediately'] ?? false) === true;
             });
