@@ -430,7 +430,7 @@ class LeaveAccrualService
         $transferredInTotal = 0.0;
         foreach ($bonusDocs as $doc) {
             $eventDate = $doc->date_from ? Carbon::parse($doc->date_from) : null;
-            if (!$eventDate || $eventDate->gt($referenceDate)) continue;
+            if (!$eventDate) continue;
 
             $transferredInTotal += 1.0; // 1 Bonus Day
             
